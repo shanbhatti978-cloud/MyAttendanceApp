@@ -26,8 +26,8 @@ dependencies:
   excel: ^4.0.6
 
   # Export to PDF
-  pdf: ^3.11.1
-  printing: ^5.13.1
+  pdf: ^3.11.3
+  printing: ^5.14.2
 
   # Share / save exported files & backups
   share_plus: ^9.0.0
