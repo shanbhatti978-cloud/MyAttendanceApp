@@ -1,0 +1,187 @@
+====================================================================
+ RELIANCE ATTENDANCE MANAGEMENT SYSTEM (RAMS)
+ Flutter + SQLite — 100% Offline Android App
+ BUILD & INSTALL GUIDE
+====================================================================
+
+IMPORTANT — READ THIS FIRST
+--------------------------------------------------------------------
+This folder contains the COMPLETE Flutter source code for RAMS,
+INCLUDING the android/ platform folder (Gradle files, manifest,
+MainActivity, launcher icons — everything needed to build). It could
+not be compiled into a .apk in the tool that generated it, because
+that environment has no internet access to Google's Flutter/Android
+SDKs or Gradle's distribution servers (it can only reach a short
+allow-list of package sites). Compiling into an APK needs the free
+Flutter SDK, which takes a few minutes to set up.
+
+You have two ways to get your APK. Option A needs nothing installed
+on your own computer. Option B is the classic local method.
+
+ONE THING WORTH KNOWING ABOUT android/ :
+It ships complete, including the real gradle-wrapper.jar binary — you
+do not need to run `flutter create` or any extra command to "finish"
+it. It is ready to build as-is.
+
+
+--------------------------------------------------------------------
+ OPTION A — BUILD THE APK ONLINE, 100% FREE, NO INSTALL (RECOMMENDED)
+--------------------------------------------------------------------
+This uses GitHub Actions, which is genuinely free — no credit card,
+no paid tier required. Public repos get unlimited free build minutes;
+private repos get 2000 free minutes/month, which is far more than
+enough for building this app repeatedly. A ready-made workflow file
+is already included at .github/workflows/build.yml.
+
+1. Create a free account at https://github.com if you don't have one.
+2. Create a new repository and upload this whole folder to it
+   (drag-and-drop upload works on github.com — no git knowledge
+   needed). Make sure the ".github" folder is included in the upload
+   (some file managers hide folders starting with a dot — if yours
+   does, use "Add file > Upload files" and drag the .github folder
+   in directly, or use GitHub Desktop instead).
+3. Go to the "Actions" tab of your repository. GitHub will detect the
+   workflow automatically and start building within a minute or two
+   of your upload (or click "Run workflow" to trigger it manually).
+4. Once the run finishes (green checkmark), click into it and scroll
+   down to "Artifacts" — download "RAMS-release-apk" (it downloads as
+   a .zip containing app-release.apk). Extract it, copy the .apk to
+   your phone, and tap it to install.
+
+This never touches iOS and never asks for payment at any point.
+
+
+--------------------------------------------------------------------
+ OPTION B — CODEMAGIC (ALTERNATIVE, FREE TIER IS LIMITED)
+--------------------------------------------------------------------
+Codemagic also works (a codemagic.yaml is included for it too), but
+its free tier is a limited number of build minutes per month and may
+prompt for billing details on some plans. If you'd rather avoid that
+entirely, use Option A above instead — Codemagic isn't required.
+
+Use a free cloud build service so you never touch Android Studio.
+This project already includes a codemagic.yaml file that tells
+Codemagic to build ONLY Android (RAMS has no ios/ folder on purpose,
+since this is an Android-only app — the config prevents Codemagic
+from trying to build an iOS version, which would fail).
+
+1. Create a free account at https://codemagic.io.
+2. Create a new GitHub repository and upload this whole folder to it,
+   INCLUDING the codemagic.yaml file at the top level (drag-and-drop
+   upload works fine on github.com — no git knowledge needed).
+3. In Codemagic, click "Add application" and pick your repository.
+   Codemagic will detect codemagic.yaml automatically and show a
+   workflow named "RAMS - Android Release APK" — select it.
+4. Click "Start new build". After a few minutes you'll get a
+   downloadable .apk under the build's Artifacts tab — download it
+   straight to your Android phone (or transfer it via USB/email) and
+   tap it to install.
+
+This produces a genuine release APK, built entirely in the cloud,
+and never attempts to build for iOS.
+
+ALREADY SET UP YOUR APP ON CODEMAGIC BEFORE ADDING codemagic.yaml?
+If you added the app to Codemagic earlier and it auto-detected a
+generic "Flutter App" workflow (the one that tries iOS too), you need
+to switch it: open your app in Codemagic > Settings > Build
+configuration, and change it to "Uses codemagic.yaml configuration
+file" (sometimes labelled "Configuration source"). Save, then start a
+new build — it will now use the Android-only workflow above.
+
+
+--------------------------------------------------------------------
+ OPTION C — BUILD LOCALLY ON WINDOWS/MAC (ONE TIME SETUP)
+--------------------------------------------------------------------
+STEP 1 - Install Flutter
+    Go to https://docs.flutter.dev/get-started/install and download
+    the installer for your OS. Run it and follow the on-screen steps
+    (it also installs the Android SDK / command-line tools for you).
+    Then open a terminal and run:
+        flutter doctor
+    Fix anything it flags in red (usually just "accept Android
+    licenses", which it will tell you the exact command for).
+
+STEP 2 - Get the project ready
+    Open a terminal in THIS folder (rams_flutter) and run:
+        flutter pub get
+    This also auto-generates android/local.properties pointing at your
+    Flutter/Android SDK — you don't need to create it by hand.
+
+STEP 3 - (Optional) Regenerate the app icon in every size
+        flutter pub run flutter_launcher_icons
+    A basic icon is already included and wired up in the manifest, so
+    the app will build and install fine without this step. Run it
+    only if you replace assets/icon/app_icon.png with your own logo
+    (1024x1024 PNG, square) and want it applied to every icon size.
+
+STEP 4 - Build the release APK
+        flutter build apk --release
+    When it finishes, your APK is at:
+        build/app/outputs/flutter-apk/app-release.apk
+
+STEP 5 - Install it on your phone
+    Copy app-release.apk to your Android phone (USB cable, email to
+    yourself, or Google Drive/WhatsApp), then tap the file on the
+    phone to install. If Android blocks it, allow "Install unknown
+    apps" for that source in Settings > Apps > Special access —
+    this is a normal, one-time step for any app installed outside
+    the Play Store.
+
+
+--------------------------------------------------------------------
+ FIRST LOGIN
+--------------------------------------------------------------------
+    Admin login:       admin / admin123
+    Supervisor login:  supervisor / super123
+    (Change these immediately from Settings > Change Password.)
+
+
+--------------------------------------------------------------------
+ WHAT'S INSIDE
+--------------------------------------------------------------------
+    lib/main.dart              - app entry point
+    lib/db/db_helper.dart      - SQLite schema + all data operations
+    lib/models/                - Employee & Attendance data models
+    lib/screens/                - Login, Dashboard, Employee Master,
+                                   Attendance, Reports, Backup, Settings
+    lib/widgets/                - shared UI pieces (drawer, stat cards)
+    lib/utils/                  - theme, constants, session, export
+    assets/icon/app_icon.png    - placeholder app icon (swap this file
+                                   with your own logo any time — 1024x1024
+                                   PNG, square, no transparency needed)
+
+    Every screen and file has comments explaining what it does and why.
+
+
+--------------------------------------------------------------------
+ YOUR DATA / BACKUPS
+--------------------------------------------------------------------
+    All data (employees, attendance, settings) lives in a single
+    SQLite file stored privately inside the app on your phone —
+    nothing is ever sent anywhere. Use Settings > Backup / Restore
+    inside the app regularly to save a copy to Google Drive, email,
+    or a computer, in case the phone is lost or replaced.
+
+
+--------------------------------------------------------------------
+ CHANGING THE APP NAME OR PACKAGE ID
+--------------------------------------------------------------------
+The app is already labeled "RAMS" with package ID com.reliance.rams.
+To change either:
+  - Display name shown under the icon: edit
+    android/app/src/main/AndroidManifest.xml, the android:label value.
+  - Package ID (only needed if publishing to Play Store under your own
+    developer account): change "com.reliance.rams" in
+    android/app/build.gradle (namespace + applicationId), and rename
+    the folder android/app/src/main/kotlin/com/reliance/rams/ to match.
+
+
+--------------------------------------------------------------------
+ NOTE ON APP SIGNING
+--------------------------------------------------------------------
+This project's release build is signed with Android's default debug
+key, which is perfectly fine for installing directly on your own
+phones (the normal use case here — you don't need a Google Play
+account for this). If you ever want to publish RAMS on the Google
+Play Store, you'll need your own signing keystore instead — see
+https://docs.flutter.dev/deployment/android#signing-the-app.
