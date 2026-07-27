@@ -26,9 +26,8 @@ class _BackupScreenState extends State<BackupScreen> {
     try {
       final path = await DBHelper.instance.prepareBackupFile();
       final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-      await Share.shareXFiles(
-        [XFile(path)],
-        text: 'RAMS Database Backup - $stamp',
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path)], text: 'RAMS Database Backup - $stamp'),
       );
       setState(() => _message = 'Backup ready. Choose where to save it (Drive, USB, WhatsApp, etc).');
     } catch (e) {

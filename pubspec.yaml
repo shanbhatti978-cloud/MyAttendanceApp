@@ -30,7 +30,7 @@ dependencies:
   printing: ^5.14.2
 
   # Share / save exported files & backups
-  share_plus: ^9.0.0
+  share_plus: ^12.0.2
 
   # File picking for Restore Backup
   file_picker: ^8.0.6

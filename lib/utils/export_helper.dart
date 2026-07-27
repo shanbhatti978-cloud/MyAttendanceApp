@@ -54,7 +54,9 @@ class ExportHelper {
     if (bytes != null) {
       final file = File(path);
       await file.writeAsBytes(bytes);
-      await Share.shareXFiles([XFile(path)], text: 'RAMS Monthly Report - $monthLabel');
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path)], text: 'RAMS Monthly Report - $monthLabel'),
+      );
     }
   }
 
@@ -99,6 +101,8 @@ class ExportHelper {
     final path = '${dir.path}/RAMS_Report_$monthLabel.pdf';
     final file = File(path);
     await file.writeAsBytes(await doc.save());
-    await Share.shareXFiles([XFile(path)], text: 'RAMS Monthly Report - $monthLabel');
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(path)], text: 'RAMS Monthly Report - $monthLabel'),
+    );
   }
 }
