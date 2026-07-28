@@ -6,9 +6,10 @@ import '../utils/session.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/employee_list_screen.dart';
 import '../screens/attendance_screen.dart';
-import '../screens/reports_screen.dart';
+import '../screens/reports/reports_screen.dart';
 import '../screens/backup_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/security_settings_screen.dart';
 import '../screens/login_screen.dart';
 
 /// Shared side-drawer navigation so every screen has quick access to
@@ -72,6 +73,14 @@ class AppDrawer extends StatelessWidget {
             leading: const Icon(Icons.settings),
             title: const Text('Settings'),
             onTap: () => _go(context, const SettingsScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.fingerprint),
+            title: const Text('Security Settings'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SecuritySettingsScreen()));
+            },
           ),
           const Divider(),
           ListTile(

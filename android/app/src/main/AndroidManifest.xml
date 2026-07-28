@@ -4,7 +4,8 @@
          READ/WRITE storage permissions are only for Backup/Restore + Export,
          handled via Android's scoped storage / share sheet (no broad
          "manage all files" access needed on modern Android). -->
-
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
     <application
         android:label="RAMS"
         android:name="${applicationName}"

@@ -135,6 +135,14 @@ STEP 5 - Install it on your phone
     Supervisor login:  supervisor / super123
     (Change these immediately from Settings > Change Password.)
 
+    New: after logging in, open Settings > Security Settings (or the
+    drawer) to turn on Fingerprint / Face Unlock. Your password always
+    keeps working as a backup.
+
+    Note: this update requires Android 6.0 (API 23) or newer, needed
+    for the biometric unlock feature — one step up from the previous
+    minimum of Android 5.0.
+
 
 --------------------------------------------------------------------
  WHAT'S INSIDE

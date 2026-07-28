@@ -38,6 +38,9 @@ dependencies:
   # Secure-ish password hashing for login
   crypto: ^3.0.3
 
+  # Biometric (fingerprint / face) unlock
+  local_auth: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -49,7 +52,7 @@ flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/icon/app_icon.png"
-  min_sdk_android: 21
+  min_sdk_android: 23
 
 flutter:
   uses-material-design: true

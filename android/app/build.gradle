@@ -47,7 +47,10 @@ android {
 
     defaultConfig {
         applicationId "com.reliance.rams"
-        minSdkVersion flutter.minSdkVersion
+        // local_auth's biometric prompt (androidx.biometric) requires at
+        // least API 23 (Android 6.0), so this is pinned explicitly rather
+        // than left to flutter.minSdkVersion, which can default lower.
+        minSdkVersion 23
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

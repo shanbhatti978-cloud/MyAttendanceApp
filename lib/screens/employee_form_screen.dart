@@ -20,8 +20,8 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
   late TextEditingController _codeCtrl;
   late TextEditingController _nameCtrl;
   late TextEditingController _designationCtrl;
+  late TextEditingController _shiftCtrl;
   late TextEditingController _remarksCtrl;
-  late String _shift;
   late String _restDay;
   late String _status;
   late DateTime _joiningDate;
@@ -37,8 +37,8 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
     _codeCtrl = TextEditingController(text: e?.employeeCode ?? '');
     _nameCtrl = TextEditingController(text: e?.name ?? '');
     _designationCtrl = TextEditingController(text: e?.designation ?? '');
+    _shiftCtrl = TextEditingController(text: e?.shift ?? AppConstants.shifts.first);
     _remarksCtrl = TextEditingController(text: e?.remarks ?? '');
-    _shift = e?.shift ?? AppConstants.shifts.first;
     _restDay = e?.weeklyRestDay ?? 'Sunday';
     _status = e?.status ?? 'Active';
     _joiningDate = e != null ? DateTime.parse(e.joiningDate) : DateTime.now();
@@ -49,6 +49,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
     _codeCtrl.dispose();
     _nameCtrl.dispose();
     _designationCtrl.dispose();
+    _shiftCtrl.dispose();
     _remarksCtrl.dispose();
     super.dispose();
   }
@@ -75,7 +76,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
       employeeCode: _codeCtrl.text.trim(),
       name: _nameCtrl.text.trim(),
       designation: _designationCtrl.text.trim(),
-      shift: _shift,
+      shift: _shiftCtrl.text.trim(),
       weeklyRestDay: _restDay,
       joiningDate: DateFormat('yyyy-MM-dd').format(_joiningDate),
       status: _status,
@@ -127,11 +128,22 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _shift,
-                decoration: const InputDecoration(labelText: 'Shift *'),
-                items: AppConstants.shifts.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                onChanged: (v) => setState(() => _shift = v!),
+              TextFormField(
+                controller: _shiftCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Shift *',
+                  helperText: 'Pick a suggestion or type a custom shift name',
+                  prefixIcon: const Icon(Icons.schedule),
+                  suffixIcon: PopupMenuButton<String>(
+                    icon: const Icon(Icons.arrow_drop_down),
+                    tooltip: 'Suggestions',
+                    onSelected: (v) => setState(() => _shiftCtrl.text = v),
+                    itemBuilder: (_) => AppConstants.shifts
+                        .map((s) => PopupMenuItem(value: s, child: Text(s)))
+                        .toList(),
+                  ),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(

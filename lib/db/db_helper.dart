@@ -147,7 +147,7 @@ class DBHelper {
     return db.delete('employees', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<Employee>> getEmployees({String query = '', String statusFilter = 'All'}) async {
+  Future<List<Employee>> getEmployees({String query = '', String statusFilter = 'All', String shiftFilter = 'All'}) async {
     final db = await database;
     String where = '';
     List<Object?> args = [];
@@ -161,6 +161,11 @@ class DBHelper {
       where += 'status = ?';
       args.add(statusFilter);
     }
+    if (shiftFilter != 'All') {
+      if (where.isNotEmpty) where += ' AND ';
+      where += 'shift = ?';
+      args.add(shiftFilter);
+    }
 
     final rows = await db.query(
       'employees',
@@ -169,6 +174,15 @@ class DBHelper {
       orderBy: 'name ASC',
     );
     return rows.map((r) => Employee.fromMap(r)).toList();
+  }
+
+  /// Distinct shift names currently in use — powers the Shift-Wise Report
+  /// filter dropdown so it always reflects real data, including any
+  /// custom shift names (not just the built-in Morning/Evening/Night).
+  Future<List<String>> getDistinctShifts() async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT DISTINCT shift FROM employees ORDER BY shift ASC');
+    return rows.map((r) => r['shift'] as String).toList();
   }
 
   Future<Employee?> getEmployeeById(int id) async {
@@ -216,6 +230,20 @@ class DBHelper {
     return {for (final r in rows) r['employee_id'] as int: r['status'] as String};
   }
 
+  /// Per-employee attendance status for one specific date — powers the
+  /// Daily Attendance Report. Employees with no record yet for that date
+  /// are reported as "Not Marked" rather than silently omitted.
+  Future<List<Map<String, dynamic>>> getDailyReport(String date, {String shiftFilter = 'All'}) async {
+    final employees = await getEmployees(statusFilter: 'Active', shiftFilter: shiftFilter);
+    final existing = await getAttendanceForDate(date);
+    return employees
+        .map((e) => {
+              'employee': e,
+              'status': existing[e.id] ?? 'Not Marked',
+            })
+        .toList();
+  }
+
   Future<Map<String, int>> getTodaySummary(String date) async {
     final db = await database;
     final rows = await db.rawQuery(
@@ -233,12 +261,16 @@ class DBHelper {
   }
 
   /// Monthly report: per-employee counts of each status + attendance %.
-  Future<List<Map<String, dynamic>>> getMonthlyReport(int year, int month) async {
+  /// Optionally restrict to a single shift for the Shift-Wise Report.
+  Future<List<Map<String, dynamic>>> getMonthlyReport(int year, int month, {String shiftFilter = 'All'}) async {
     final db = await database;
     final monthStr = month.toString().padLeft(2, '0');
     final prefix = '$year-$monthStr';
 
-    final employees = await getEmployees();
+    final employees = await getEmployees(
+      statusFilter: 'Active',
+      shiftFilter: shiftFilter,
+    );
     final List<Map<String, dynamic>> report = [];
 
     for (final emp in employees) {
@@ -286,6 +318,36 @@ class DBHelper {
     final db = await database;
     await db.insert('settings', {'key': key, 'value': value},
         conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ---------------- BIOMETRIC LOGIN ----------------
+
+  /// Whether biometric (fingerprint/face) unlock is currently turned on.
+  Future<bool> isBiometricEnabled() async {
+    final v = await getSetting('biometric_enabled', fallback: 'false');
+    return v == 'true';
+  }
+
+  /// Turns biometric unlock on and remembers WHICH account it should log
+  /// in as (fingerprint unlock still needs to know which user/role to
+  /// resume as — there's no password entry to identify them otherwise).
+  Future<void> enableBiometric(String username, String role) async {
+    await setSetting('biometric_enabled', 'true');
+    await setSetting('biometric_username', username);
+    await setSetting('biometric_role', role);
+  }
+
+  Future<void> disableBiometric() async {
+    await setSetting('biometric_enabled', 'false');
+  }
+
+  /// The account that biometric unlock will resume as, or null if
+  /// biometric login has never been set up.
+  Future<Map<String, String>?> getBiometricAccount() async {
+    final username = await getSetting('biometric_username');
+    final role = await getSetting('biometric_role');
+    if (username.isEmpty || role.isEmpty) return null;
+    return {'username': username, 'role': role};
   }
 
   // ---------------- BACKUP / RESTORE ----------------

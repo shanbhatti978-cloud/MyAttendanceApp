@@ -19,7 +19,7 @@ class AppConstants {
     weeklyRest,
   ];
 
-  static const List<String> shifts = ["Morning", "Evening", "Night"];
+  static const List<String> shifts = ["Morning", "Evening", "Night", "A", "B", "C", "General"];
 
   static const List<String> weekdays = [
     "Monday",

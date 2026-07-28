@@ -5,6 +5,7 @@ import '../db/db_helper.dart';
 import '../utils/constants.dart';
 import '../utils/session.dart';
 import '../widgets/app_drawer.dart';
+import 'security_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -94,6 +95,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.fingerprint, color: AppColors.primary, size: 32),
+                    title: const Text('Security Settings', style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: const Text('Enable fingerprint / face unlock'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SecuritySettingsScreen()));
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 8),
                 const Text('Company Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 TextField(

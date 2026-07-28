@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'utils/constants.dart';
 import 'utils/session.dart';
-import 'screens/login_screen.dart';
+import 'screens/auth_gate_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,7 +23,7 @@ class RAMSApp extends StatelessWidget {
         theme: AppTheme.theme,
         // The app is 100% offline: no HTTP client, no server, no localhost.
         // Everything runs and is stored directly on the device via SQLite.
-        home: const LoginScreen(),
+        home: const AuthGateScreen(),
       ),
     );
   }
