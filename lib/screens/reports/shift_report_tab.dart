@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../db/db_helper.dart';
 import '../../models/employee.dart';
 import '../../utils/constants.dart';
+import '../../utils/data_bus.dart';
 import '../../utils/export_helper.dart';
 
 class ShiftReportTab extends StatefulWidget {
@@ -20,13 +21,26 @@ class _ShiftReportTabState extends State<ShiftReportTab> {
   List<Map<String, dynamic>> _report = [];
   bool _loading = true;
   bool _exporting = false;
+  bool _sortByPercentage = false;
+  bool _sortAscending = true;
 
   String get _monthLabel => DateFormat('MMMM yyyy').format(_month);
 
   @override
   void initState() {
     super.initState();
+    DataBus.instance.addListener(_onDataChanged);
     _init();
+  }
+
+  @override
+  void dispose() {
+    DataBus.instance.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _load();
   }
 
   Future<void> _init() async {
@@ -47,9 +61,35 @@ class _ShiftReportTabState extends State<ShiftReportTab> {
       _month.month,
       shiftFilter: _selectedShift!,
     );
+    _applySort(report);
     setState(() {
       _report = report;
       _loading = false;
+    });
+  }
+
+  void _applySort(List<Map<String, dynamic>> list) {
+    int compare(Map<String, dynamic> a, Map<String, dynamic> b) {
+      if (_sortByPercentage) {
+        return (a['percentage'] as double).compareTo(b['percentage'] as double);
+      }
+      final Employee ea = a['employee'];
+      final Employee eb = b['employee'];
+      return ea.name.toLowerCase().compareTo(eb.name.toLowerCase());
+    }
+
+    list.sort(_sortAscending ? compare : (a, b) => compare(b, a));
+  }
+
+  void _toggleSort(bool byPercentage) {
+    setState(() {
+      if (_sortByPercentage == byPercentage) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortByPercentage = byPercentage;
+        _sortAscending = true;
+      }
+      _applySort(_report);
     });
   }
 
@@ -159,6 +199,30 @@ class _ShiftReportTabState extends State<ShiftReportTab> {
             ],
           ),
         ),
+        if (!_loading && _report.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                const Text('Sort by:', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Name'),
+                  selected: !_sortByPercentage,
+                  onSelected: (_) => _toggleSort(false),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Attendance %'),
+                  selected: _sortByPercentage,
+                  onSelected: (_) => _toggleSort(true),
+                ),
+                const Spacer(),
+                Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 16, color: AppColors.primary),
+              ],
+            ),
+          ),
+        const SizedBox(height: 6),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())

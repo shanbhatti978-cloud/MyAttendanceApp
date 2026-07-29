@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../db/db_helper.dart';
 import '../../models/employee.dart';
 import '../../utils/constants.dart';
+import '../../utils/data_bus.dart';
 import '../../utils/export_helper.dart';
 
 class DailyReportTab extends StatefulWidget {
@@ -25,7 +26,18 @@ class _DailyReportTabState extends State<DailyReportTab> {
   @override
   void initState() {
     super.initState();
+    DataBus.instance.addListener(_onDataChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    DataBus.instance.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _load();
   }
 
   Future<void> _load() async {

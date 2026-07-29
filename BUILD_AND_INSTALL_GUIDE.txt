@@ -139,6 +139,11 @@ STEP 5 - Install it on your phone
     drawer) to turn on Fingerprint / Face Unlock. Your password always
     keeps working as a backup.
 
+    Also new in this version: a "Shift Planning" report tab (Reports),
+    Advance Leave Entry (drawer), Dashboard charts + Recent Activities,
+    and Light/Dark mode (Settings). Existing employees/attendance data
+    is untouched and carries over automatically.
+
     Note: this update requires Android 6.0 (API 23) or newer, needed
     for the biometric unlock feature — one step up from the previous
     minimum of Android 5.0.

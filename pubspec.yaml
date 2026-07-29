@@ -1,7 +1,7 @@
 name: rams_app
 description: Reliance Attendance Management System (RAMS) - Offline Android app
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.2.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -40,6 +40,9 @@ dependencies:
 
   # Biometric (fingerprint / face) unlock
   local_auth: ^2.3.0
+
+  # Charts for Dashboard / Shift Planning visualizations
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:

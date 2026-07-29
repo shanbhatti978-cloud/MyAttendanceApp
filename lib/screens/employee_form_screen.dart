@@ -110,84 +110,145 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextFormField(
-                controller: _codeCtrl,
-                decoration: const InputDecoration(labelText: 'Employee ID *'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Employee Name *'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _designationCtrl,
-                decoration: const InputDecoration(labelText: 'Designation *'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _shiftCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Shift *',
-                  helperText: 'Pick a suggestion or type a custom shift name',
-                  prefixIcon: const Icon(Icons.schedule),
-                  suffixIcon: PopupMenuButton<String>(
-                    icon: const Icon(Icons.arrow_drop_down),
-                    tooltip: 'Suggestions',
-                    onSelected: (v) => setState(() => _shiftCtrl.text = v),
-                    itemBuilder: (_) => AppConstants.shifts
-                        .map((s) => PopupMenuItem(value: s, child: Text(s)))
-                        .toList(),
+              _sectionCard(
+                title: 'Basic Information',
+                icon: Icons.badge_outlined,
+                children: [
+                  TextFormField(
+                    controller: _codeCtrl,
+                    decoration: const InputDecoration(labelText: 'Employee ID *'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
-                ),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Employee Name *'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _designationCtrl,
+                    decoration: const InputDecoration(labelText: 'Designation *'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _restDay,
-                decoration: const InputDecoration(labelText: 'Weekly Rest Day *'),
-                items: AppConstants.weekdays.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-                onChanged: (v) => setState(() => _restDay = v!),
+              const SizedBox(height: 16),
+              _sectionCard(
+                title: 'Work Details',
+                icon: Icons.work_outline,
+                children: [
+                  TextFormField(
+                    controller: _shiftCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Shift *',
+                      helperText: 'Pick a suggestion or type a custom shift name',
+                      prefixIcon: const Icon(Icons.schedule),
+                      suffixIcon: PopupMenuButton<String>(
+                        icon: const Icon(Icons.arrow_drop_down),
+                        tooltip: 'Suggestions',
+                        onSelected: (v) => setState(() => _shiftCtrl.text = v),
+                        itemBuilder: (_) => AppConstants.shifts
+                            .map((s) => PopupMenuItem(value: s, child: Text(s)))
+                            .toList(),
+                      ),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: _restDay,
+                    decoration: const InputDecoration(labelText: 'Weekly Rest Day *', prefixIcon: Icon(Icons.hotel)),
+                    items: AppConstants.weekdays.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                    onChanged: (v) => setState(() => _restDay = v!),
+                  ),
+                  const SizedBox(height: 14),
+                  InkWell(
+                    onTap: _pickDate,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                          labelText: 'Joining Date *', prefixIcon: Icon(Icons.calendar_today)),
+                      child: Text(DateFormat('dd MMM yyyy').format(_joiningDate)),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-              InkWell(
-                onTap: _pickDate,
-                child: InputDecorator(
-                  decoration: const InputDecoration(labelText: 'Joining Date *'),
-                  child: Text(DateFormat('dd MMM yyyy').format(_joiningDate)),
-                ),
+              const SizedBox(height: 16),
+              _sectionCard(
+                title: 'Status & Remarks',
+                icon: Icons.info_outline,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: _status,
+                    decoration: const InputDecoration(labelText: 'Status *', prefixIcon: Icon(Icons.toggle_on_outlined)),
+                    items: AppConstants.employeeStatuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                    onChanged: (v) => setState(() => _status = v!),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _remarksCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(labelText: 'Remarks (optional)', prefixIcon: Icon(Icons.notes)),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                decoration: const InputDecoration(labelText: 'Status *'),
-                items: AppConstants.employeeStatuses.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                onChanged: (v) => setState(() => _status = v!),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: _error == null
+                    ? const SizedBox(height: 0)
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.danger.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline, color: AppColors.danger, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(child: Text(_error!, style: const TextStyle(color: AppColors.danger))),
+                            ],
+                          ),
+                        ),
+                      ),
               ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: _remarksCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Remarks (optional)'),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 14),
-                Text(_error!, style: const TextStyle(color: AppColors.danger)),
-              ],
-              const SizedBox(height: 26),
-              ElevatedButton(
+              const SizedBox(height: 22),
+              ElevatedButton.icon(
                 onPressed: _saving ? null : _save,
-                child: _saving
+                icon: _saving
                     ? const SizedBox(
-                        height: 22, width: 22,
+                        height: 18, width: 18,
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : Text(_isEdit ? 'UPDATE EMPLOYEE' : 'SAVE EMPLOYEE'),
+                    : const Icon(Icons.check),
+                label: Text(_isEdit ? 'UPDATE EMPLOYEE' : 'SAVE EMPLOYEE'),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionCard({required String title, required IconData icon, required List<Widget> children}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.primary)),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ...children,
+          ],
         ),
       ),
     );

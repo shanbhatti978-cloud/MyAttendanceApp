@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../utils/constants.dart';
+import '../utils/page_transitions.dart';
 import '../utils/session.dart';
+import '../utils/theme_controller.dart';
 import '../widgets/app_drawer.dart';
 import 'security_settings_screen.dart';
 
@@ -102,8 +104,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: const Text('Enable fingerprint / face unlock'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SecuritySettingsScreen()));
+                      Navigator.push(context, fadeSlideRoute(const SecuritySettingsScreen()));
                     },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Consumer<ThemeController>(
+                  builder: (context, themeController, _) => Card(
+                    child: SwitchListTile(
+                      secondary: Icon(themeController.isDark ? Icons.dark_mode : Icons.light_mode,
+                          color: AppColors.primary, size: 32),
+                      title: const Text('Dark Mode', style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: const Text('Switch between light and dark appearance'),
+                      value: themeController.isDark,
+                      onChanged: (v) => themeController.toggle(v),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),

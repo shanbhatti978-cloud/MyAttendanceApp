@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../utils/constants.dart';
+import '../utils/page_transitions.dart';
 import '../utils/session.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/employee_list_screen.dart';
 import '../screens/attendance_screen.dart';
+import '../screens/leave_entry_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../screens/backup_screen.dart';
 import '../screens/settings_screen.dart';
@@ -19,7 +21,12 @@ class AppDrawer extends StatelessWidget {
 
   void _go(BuildContext context, Widget screen) {
     Navigator.pop(context);
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
+    Navigator.pushReplacement(context, fadeSlideRoute(screen));
+  }
+
+  void _push(BuildContext context, Widget screen) {
+    Navigator.pop(context);
+    Navigator.push(context, fadeSlideRoute(screen));
   }
 
   @override
@@ -30,13 +37,23 @@ class AppDrawer extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: [
           DrawerHeader(
-            decoration: const BoxDecoration(color: AppColors.primary),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.primary, AppColors.primaryLight],
+              ),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                const Icon(Icons.factory, color: Colors.white, size: 36),
-                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), shape: BoxShape.circle),
+                  child: const Icon(Icons.factory, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 10),
                 const Text(AppConstants.appShortName,
                     style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                 Text('${session.username ?? ''} (${session.role ?? ''})',
@@ -45,42 +62,44 @@ class AppDrawer extends StatelessWidget {
             ),
           ),
           ListTile(
-            leading: const Icon(Icons.dashboard),
+            leading: const Icon(Icons.dashboard, color: AppColors.primary),
             title: const Text('Dashboard'),
             onTap: () => _go(context, const DashboardScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.people),
+            leading: const Icon(Icons.people, color: AppColors.primary),
             title: const Text('Employee Master'),
             onTap: () => _go(context, const EmployeeListScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.checklist),
+            leading: const Icon(Icons.checklist, color: AppColors.primary),
             title: const Text('Daily Attendance'),
             onTap: () => _go(context, const AttendanceScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.bar_chart),
+            leading: const Icon(Icons.event_busy, color: AppColors.primary),
+            title: const Text('Advance Leave Entry'),
+            onTap: () => _push(context, const LeaveEntryScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.bar_chart, color: AppColors.primary),
             title: const Text('Reports'),
             onTap: () => _go(context, const ReportsScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.backup),
+            leading: const Icon(Icons.backup, color: AppColors.primary),
             title: const Text('Backup / Restore'),
             onTap: () => _go(context, const BackupScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.settings),
+            leading: const Icon(Icons.settings, color: AppColors.primary),
             title: const Text('Settings'),
             onTap: () => _go(context, const SettingsScreen()),
           ),
           ListTile(
-            leading: const Icon(Icons.fingerprint),
+            leading: const Icon(Icons.fingerprint, color: AppColors.primary),
             title: const Text('Security Settings'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const SecuritySettingsScreen()));
-            },
+            onTap: () => _push(context, const SecuritySettingsScreen()),
           ),
           const Divider(),
           ListTile(
@@ -90,7 +109,7 @@ class AppDrawer extends StatelessWidget {
               session.logout();
               Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                fadeSlideRoute(const LoginScreen()),
                 (route) => false,
               );
             },

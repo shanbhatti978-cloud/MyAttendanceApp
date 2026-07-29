@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -8,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/employee.dart';
 import '../models/attendance.dart';
 import '../utils/constants.dart';
+import '../utils/data_bus.dart';
 
 /// Single source of truth for the local SQLite database.
 /// Everything the app needs is stored on-device — nothing ever leaves
@@ -34,10 +36,38 @@ class DBHelper {
     final path = await dbPath;
     return openDatabase(
       path,
-      version: 1,
+      // v2 added performance indexes; v3 adds the activity_log table
+      // used by the Dashboard's Recent Activities feed. Both migrations
+      // run automatically for anyone upgrading from an earlier install.
+      version: 3,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: _createTables,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  /// Runs for anyone updating from an earlier installed version of the
+  /// app. Only additive, non-destructive changes belong here — existing
+  /// employees/attendance/settings must never be touched or lost.
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance (date)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance (employee_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_shift ON employees (shift)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_designation ON employees (designation)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_status ON employees (status)');
+    }
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS activity_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp TEXT NOT NULL,
+          description TEXT NOT NULL,
+          icon_type TEXT NOT NULL DEFAULT 'info'
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log (timestamp)');
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -75,12 +105,32 @@ class DBHelper {
       )
     ''');
 
+    // Indexes matter a lot here: attendance is filtered by date constantly
+    // (Daily/Shift/Planning reports) and joined against employee_id on
+    // every lookup. Without these, a factory with thousands of employees
+    // and years of history would slow to a crawl as the table grows.
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance (date)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_employee ON attendance (employee_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_shift ON employees (shift)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_designation ON employees (designation)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_status ON employees (status)');
+
     await db.execute('''
       CREATE TABLE settings (
         key TEXT PRIMARY KEY,
         value TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        description TEXT NOT NULL,
+        icon_type TEXT NOT NULL DEFAULT 'info'
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log (timestamp)');
 
     // Default admin login: admin / admin123 (hashed, never stored in plain text)
     await db.insert('users', {
@@ -134,17 +184,30 @@ class DBHelper {
 
   Future<int> insertEmployee(Employee e) async {
     final db = await database;
-    return db.insert('employees', e.toMap()..remove('id'));
+    final id = await db.insert('employees', e.toMap()..remove('id'));
+    await logActivity('Added employee "${e.name}" (${e.employeeCode})', iconType: 'employee');
+    DataBus.instance.notifyChanged();
+    return id;
   }
 
   Future<int> updateEmployee(Employee e) async {
     final db = await database;
-    return db.update('employees', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    final count = await db.update('employees', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    await logActivity('Updated employee "${e.name}" (${e.employeeCode})', iconType: 'employee');
+    DataBus.instance.notifyChanged();
+    return count;
   }
 
   Future<int> deleteEmployee(int id) async {
     final db = await database;
-    return db.delete('employees', where: 'id = ?', whereArgs: [id]);
+    final existing = await getEmployeeById(id);
+    final count = await db.delete('employees', where: 'id = ?', whereArgs: [id]);
+    await logActivity(
+      'Removed employee "${existing?.name ?? '#$id'}"',
+      iconType: 'employee',
+    );
+    DataBus.instance.notifyChanged();
+    return count;
   }
 
   Future<List<Employee>> getEmployees({String query = '', String statusFilter = 'All', String shiftFilter = 'All'}) async {
@@ -185,6 +248,14 @@ class DBHelper {
     return rows.map((r) => r['shift'] as String).toList();
   }
 
+  /// Distinct designations currently in use — powers the designation
+  /// filter on the Shift Planning report.
+  Future<List<String>> getDistinctDesignations() async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT DISTINCT designation FROM employees ORDER BY designation ASC');
+    return rows.map((r) => r['designation'] as String).toList();
+  }
+
   Future<Employee?> getEmployeeById(int id) async {
     final db = await database;
     final rows = await db.query('employees', where: 'id = ?', whereArgs: [id]);
@@ -211,6 +282,13 @@ class DBHelper {
       record.toMap()..remove('id'),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    final emp = await getEmployeeById(record.employeeId);
+    final iconType = record.status == AppConstants.leave ? 'leave' : 'attendance';
+    await logActivity(
+      'Marked "${record.status}" for ${emp?.name ?? 'employee #${record.employeeId}'} on ${record.date}',
+      iconType: iconType,
+    );
+    DataBus.instance.notifyChanged();
   }
 
   Future<void> saveAllAttendance(List<AttendanceRecord> records) async {
@@ -221,6 +299,24 @@ class DBHelper {
           conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+    if (records.isNotEmpty) {
+      await logActivity(
+        'Saved attendance for ${records.length} employee(s) on ${records.first.date}',
+        iconType: 'attendance',
+      );
+    }
+    DataBus.instance.notifyChanged();
+  }
+
+  /// Deletes a single attendance/leave record (e.g. "undo" a leave entry
+  /// that was marked by mistake), restoring the employee to "Not Marked"
+  /// for that date.
+  Future<void> deleteAttendance(int employeeId, String date) async {
+    final db = await database;
+    await db.delete('attendance', where: 'employee_id = ? AND date = ?', whereArgs: [employeeId, date]);
+    final emp = await getEmployeeById(employeeId);
+    await logActivity('Cleared attendance for ${emp?.name ?? 'employee #$employeeId'} on $date', iconType: 'attendance');
+    DataBus.instance.notifyChanged();
   }
 
   /// Returns existing attendance for a given date, keyed by employee_id.
@@ -244,6 +340,116 @@ class DBHelper {
         .toList();
   }
 
+  /// Live Shift Attendance Planning Report — tells a supervisor, BEFORE
+  /// or DURING a shift, how much manpower is actually available:
+  ///   - total employees assigned to the shift
+  ///   - how many are on Leave / Weekly Rest (known in advance)
+  ///   - how many are expected to be Present (total minus the above)
+  ///   - how many are marked Absent / Present once attendance is finalized
+  ///   - overall "available manpower" for production planning
+  /// Also returns the same breakdown grouped by designation, and the
+  /// per-employee list (so the screen can offer a name/employee filter
+  /// without a second database round-trip).
+  ///
+  /// Employees with no attendance record yet for this date are NOT
+  /// treated as absent — they're counted as part of "expected present"
+  /// (unless it happens to be their weekly rest day), since attendance
+  /// for a future or in-progress shift is often not finalized yet.
+  Future<Map<String, dynamic>> getShiftPlanningReport(
+    String date, {
+    String shiftFilter = 'All',
+    String designationFilter = 'All',
+  }) async {
+    final employees = await getEmployees(statusFilter: 'Active', shiftFilter: shiftFilter);
+    final filtered = designationFilter == 'All'
+        ? employees
+        : employees.where((e) => e.designation == designationFilter).toList();
+    final attendanceMap = await getAttendanceForDate(date);
+    final weekday = AppConstants.weekdays[DateTime.parse(date).weekday - 1];
+
+    final Map<String, Map<String, int>> byDesignation = {};
+    int total = 0, leave = 0, weeklyRest = 0, present = 0, absent = 0, notMarked = 0;
+    final List<Map<String, dynamic>> employeeRows = [];
+
+    for (final e in filtered) {
+      total++;
+      final recorded = attendanceMap[e.id];
+      final isRestDay = e.weeklyRestDay == weekday;
+      String bucket;
+      String displayStatus;
+
+      if (recorded == AppConstants.leave) {
+        leave++;
+        bucket = 'leave';
+        displayStatus = AppConstants.leave;
+      } else if (recorded == AppConstants.weeklyRest) {
+        weeklyRest++;
+        bucket = 'weeklyRest';
+        displayStatus = AppConstants.weeklyRest;
+      } else if (recorded == AppConstants.absent) {
+        absent++;
+        bucket = 'absent';
+        displayStatus = AppConstants.absent;
+      } else if (recorded == AppConstants.present) {
+        present++;
+        bucket = 'present';
+        displayStatus = AppConstants.present;
+      } else if (isRestDay) {
+        weeklyRest++;
+        bucket = 'weeklyRest';
+        displayStatus = AppConstants.weeklyRest;
+      } else {
+        notMarked++;
+        bucket = 'notMarked';
+        displayStatus = 'Expected Present';
+      }
+
+      employeeRows.add({'employee': e, 'status': displayStatus});
+
+      final d = byDesignation.putIfAbsent(
+          e.designation, () => {'total': 0, 'leave': 0, 'weeklyRest': 0, 'present': 0, 'absent': 0, 'notMarked': 0});
+      d['total'] = d['total']! + 1;
+      d[bucket] = (d[bucket] ?? 0) + 1;
+    }
+
+    final expectedPresent = total - leave - weeklyRest;
+    final availableManpower = present + notMarked;
+
+    final designationBreakdown = byDesignation.entries.map((entry) {
+      final d = entry.value;
+      final dTotal = d['total']!;
+      final dLeave = d['leave'] ?? 0;
+      final dRest = d['weeklyRest'] ?? 0;
+      final dPresent = d['present'] ?? 0;
+      final dAbsent = d['absent'] ?? 0;
+      final dNotMarked = d['notMarked'] ?? 0;
+      return {
+        'designation': entry.key,
+        'total': dTotal,
+        'leave': dLeave,
+        'weeklyRest': dRest,
+        'present': dPresent,
+        'absent': dAbsent,
+        'expectedPresent': dTotal - dLeave - dRest,
+        'availableManpower': dPresent + dNotMarked,
+      };
+    }).toList()
+      ..sort((a, b) => (a['designation'] as String).compareTo(b['designation'] as String));
+
+    return {
+      'total': total,
+      'leave': leave,
+      'weeklyRest': weeklyRest,
+      'present': present,
+      'absent': absent,
+      'notMarked': notMarked,
+      'expectedPresent': expectedPresent,
+      'availableManpower': availableManpower,
+      'byDesignation': designationBreakdown,
+      'employees': employeeRows,
+    };
+  }
+
   Future<Map<String, int>> getTodaySummary(String date) async {
     final db = await database;
     final rows = await db.rawQuery(
@@ -260,6 +466,33 @@ class DBHelper {
     return map;
   }
 
+  /// Powers BOTH Dashboard charts (Monthly Attendance Chart and Leave
+  /// Trend Chart) with a SINGLE grouped query across the requested date
+  /// range — not one query per day — so it stays fast no matter how
+  /// many days are requested or how much attendance history exists.
+  /// Returns a map keyed by date (yyyy-MM-dd), each value itself a map
+  /// of status -> count for that day.
+  Future<Map<String, Map<String, int>>> getTrendData(DateTime start, DateTime end) async {
+    final db = await database;
+    final startStr = DateFormat('yyyy-MM-dd').format(start);
+    final endStr = DateFormat('yyyy-MM-dd').format(end);
+
+    final rows = await db.rawQuery('''
+      SELECT date, status, COUNT(*) as c FROM attendance
+      WHERE date >= ? AND date <= ?
+      GROUP BY date, status
+    ''', [startStr, endStr]);
+
+    final Map<String, Map<String, int>> result = {};
+    for (final r in rows) {
+      final date = r['date'] as String;
+      final status = r['status'] as String;
+      final count = r['c'] as int;
+      result.putIfAbsent(date, () => {})[status] = count;
+    }
+    return result;
+  }
+
   /// Monthly report: per-employee counts of each status + attendance %.
   /// Optionally restrict to a single shift for the Shift-Wise Report.
   Future<List<Map<String, dynamic>>> getMonthlyReport(int year, int month, {String shiftFilter = 'All'}) async {
@@ -271,24 +504,34 @@ class DBHelper {
       statusFilter: 'Active',
       shiftFilter: shiftFilter,
     );
+
+    // Single grouped query for the WHOLE month, regardless of how many
+    // employees exist — this is the key fix for staying fast with
+    // thousands of employees and years of history: no per-employee
+    // round-trip to the database.
+    final rows = await db.rawQuery('''
+      SELECT employee_id, status, COUNT(*) as c FROM attendance
+      WHERE date LIKE ?
+      GROUP BY employee_id, status
+    ''', ['$prefix%']);
+
+    // employee_id -> {status: count}
+    final Map<int, Map<String, int>> statusByEmployee = {};
+    for (final r in rows) {
+      final empId = r['employee_id'] as int;
+      final status = r['status'] as String;
+      final count = r['c'] as int;
+      statusByEmployee.putIfAbsent(empId, () => {})[status] = count;
+    }
+
     final List<Map<String, dynamic>> report = [];
-
     for (final emp in employees) {
-      final rows = await db.rawQuery('''
-        SELECT status, COUNT(*) as c FROM attendance
-        WHERE employee_id = ? AND date LIKE ?
-        GROUP BY status
-      ''', [emp.id, '$prefix%']);
+      final counts = statusByEmployee[emp.id] ?? const {};
+      final present = counts[AppConstants.present] ?? 0;
+      final absent = counts[AppConstants.absent] ?? 0;
+      final leaveCount = counts[AppConstants.leave] ?? 0;
+      final rest = counts[AppConstants.weeklyRest] ?? 0;
 
-      int present = 0, absent = 0, leaveCount = 0, rest = 0;
-      for (final r in rows) {
-        final s = r['status'] as String;
-        final c = r['c'] as int;
-        if (s == AppConstants.present) present = c;
-        if (s == AppConstants.absent) absent = c;
-        if (s == AppConstants.leave) leaveCount = c;
-        if (s == AppConstants.weeklyRest) rest = c;
-      }
       final totalMarked = present + absent + leaveCount + rest;
       final workingDays = totalMarked - rest; // exclude rest days from % base
       final pct = workingDays > 0 ? (present / workingDays * 100) : 0.0;
@@ -318,6 +561,32 @@ class DBHelper {
     final db = await database;
     await db.insert('settings', {'key': key, 'value': value},
         conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ---------------- ACTIVITY LOG ----------------
+
+  /// Records one line for the Dashboard's Recent Activities feed.
+  /// [iconType] picks which icon the feed shows: employee, attendance,
+  /// leave, backup, or info (default).
+  Future<void> logActivity(String description, {String iconType = 'info'}) async {
+    final db = await database;
+    await db.insert('activity_log', {
+      'timestamp': DateTime.now().toIso8601String(),
+      'description': description,
+      'icon_type': iconType,
+    });
+    // Keep the log from growing forever — only the most recent 200
+    // entries are useful for a "recent activity" feed.
+    await db.rawDelete('''
+      DELETE FROM activity_log WHERE id NOT IN (
+        SELECT id FROM activity_log ORDER BY timestamp DESC LIMIT 200
+      )
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getRecentActivities({int limit = 8}) async {
+    final db = await database;
+    return db.query('activity_log', orderBy: 'timestamp DESC', limit: limit);
   }
 
   // ---------------- BIOMETRIC LOGIN ----------------
@@ -368,5 +637,7 @@ class DBHelper {
     final sourceFile = File(sourcePath);
     await sourceFile.copy(target);
     _db = await _initDB();
+    await logActivity('Database restored from backup', iconType: 'backup');
+    DataBus.instance.notifyChanged();
   }
 }

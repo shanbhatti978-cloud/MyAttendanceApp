@@ -75,6 +75,14 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.10), shape: BoxShape.circle),
+                    child: const Icon(Icons.fingerprint, size: 44, color: AppColors.primary),
+                  ),
+                ),
+                const SizedBox(height: 20),
                 Card(
                   child: SwitchListTile(
                     secondary: const Icon(Icons.fingerprint, color: AppColors.primary, size: 32),
@@ -88,16 +96,21 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
                     onChanged: _biometricAvailable ? _toggle : null,
                   ),
                 ),
-                if (_message != null) ...[
-                  const SizedBox(height: 16),
-                  Card(
-                    color: (_biometricEnabled ? AppColors.success : AppColors.warning).withValues(alpha: 0.08),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(_message!),
-                    ),
-                  ),
-                ],
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _message == null
+                      ? const SizedBox(height: 0)
+                      : Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: Card(
+                            color: (_biometricEnabled ? AppColors.success : AppColors.warning).withValues(alpha: 0.08),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Text(_message!),
+                            ),
+                          ),
+                        ),
+                ),
                 const SizedBox(height: 24),
                 const Card(
                   child: Padding(

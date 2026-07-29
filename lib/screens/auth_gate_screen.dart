@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../db/db_helper.dart';
+import '../utils/page_transitions.dart';
 import 'biometric_unlock_screen.dart';
 import 'login_screen.dart';
 
@@ -29,15 +30,9 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     if (!mounted) return;
 
     if (biometricOn && account != null) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const BiometricUnlockScreen()),
-      );
+      Navigator.pushReplacement(context, fadeSlideRoute(const BiometricUnlockScreen()));
     } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      Navigator.pushReplacement(context, fadeSlideRoute(const LoginScreen()));
     }
   }
 

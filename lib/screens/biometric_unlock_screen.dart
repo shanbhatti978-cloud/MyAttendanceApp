@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../db/db_helper.dart';
 import '../utils/biometric_helper.dart';
 import '../utils/constants.dart';
+import '../utils/page_transitions.dart';
 import '../utils/session.dart';
 import 'dashboard_screen.dart';
 import 'login_screen.dart';
@@ -64,7 +65,7 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
       }
       if (!mounted) return;
       context.read<Session>().login(account['username']!, account['role']!);
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
+      Navigator.pushReplacement(context, fadeSlideRoute(const DashboardScreen()));
     } else {
       setState(() {
         _checking = false;
@@ -74,7 +75,7 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
   }
 
   void _usePasswordInstead() {
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+    Navigator.pushReplacement(context, fadeSlideRoute(const LoginScreen()));
   }
 
   @override

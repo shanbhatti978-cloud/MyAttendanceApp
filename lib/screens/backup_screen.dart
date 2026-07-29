@@ -83,19 +83,27 @@ class _BackupScreenState extends State<BackupScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Backup / Restore')),
       drawer: const AppDrawer(),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Card(
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.10), shape: BoxShape.circle),
+                child: const Icon(Icons.sd_storage_outlined, size: 44, color: AppColors.primary),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Card(
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: AppColors.primary),
-                    SizedBox(width: 12),
-                    Expanded(
+                    const Icon(Icons.info_outline, color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    const Expanded(
                       child: Text(
                         'All your data lives only on this phone. Back it up regularly '
                         '(e.g. weekly) to Google Drive or another safe place in case the '
@@ -117,15 +125,39 @@ class _BackupScreenState extends State<BackupScreen> {
               onPressed: _working ? null : _restore,
               icon: const Icon(Icons.restore, color: AppColors.danger),
               label: const Text('RESTORE FROM BACKUP', style: TextStyle(color: AppColors.danger)),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger, width: 1.4)),
             ),
-            if (_working) ...[
-              const SizedBox(height: 20),
-              const Center(child: CircularProgressIndicator()),
-            ],
-            if (_message != null) ...[
-              const SizedBox(height: 20),
-              Text(_message!, textAlign: TextAlign.center),
-            ],
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _working
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 22),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : (_message != null
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 20),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: (_message!.toLowerCase().contains('fail') ? AppColors.danger : AppColors.success)
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _message!.toLowerCase().contains('fail') ? Icons.error_outline : Icons.check_circle_outline,
+                                  color: _message!.toLowerCase().contains('fail') ? AppColors.danger : AppColors.success,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(_message!)),
+                              ],
+                            ),
+                          ),
+                        )
+                      : const SizedBox(height: 0)),
+            ),
           ],
         ),
       ),
