@@ -34,6 +34,11 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
   }
 
   Future<void> _tryUnlock() async {
+    // Re-entrancy guard: never let two prompts stack (also protected
+    // globally by BiometricHelper.isAuthenticating, this is the local
+    // screen-level mirror of that same rule).
+    if (_checking) return;
+
     setState(() {
       _checking = true;
       _error = null;
@@ -41,6 +46,7 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
 
     final available = await BiometricHelper.isAvailable();
     if (!available) {
+      if (!mounted) return;
       setState(() {
         _checking = false;
         _error = 'Biometric unlock is not available right now. Please use your password instead.';
@@ -48,13 +54,13 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
       return;
     }
 
-    final success = await BiometricHelper.authenticate(
+    final outcome = await BiometricHelper.authenticateDetailed(
       reason: 'Unlock ${AppConstants.appShortName}',
     );
 
     if (!mounted) return;
 
-    if (success) {
+    if (outcome == BiometricOutcome.success) {
       final account = await DBHelper.instance.getBiometricAccount();
       if (account == null) {
         setState(() {
@@ -69,8 +75,14 @@ class _BiometricUnlockScreenState extends State<BiometricUnlockScreen> {
     } else {
       setState(() {
         _checking = false;
-        _error = 'Fingerprint/Face not recognized. Try again, or use your password.';
+        _error = BiometricHelper.messageFor(outcome);
       });
+      // A permanent lockout can't be cleared by tapping "Try Again" — the
+      // device needs its PIN/pattern first — so send the user straight
+      // to password login instead of leaving them stuck on a dead end.
+      if (outcome == BiometricOutcome.lockedOutPermanent) {
+        _usePasswordInstead();
+      }
     }
   }
 

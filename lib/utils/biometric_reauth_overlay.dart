@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'biometric_helper.dart';
 import 'constants.dart';
+import 'page_transitions.dart';
+import 'session.dart';
+import '../screens/login_screen.dart';
 
 /// A full-screen lock overlay (not a route/screen navigation) shown on
 /// top of whatever the user was doing when the app resumes from the
@@ -27,6 +31,8 @@ class _BiometricReauthOverlayState extends State<BiometricReauthOverlay> {
   }
 
   Future<void> _tryUnlock() async {
+    if (_checking) return; // re-entrancy guard — never stack two prompts
+
     setState(() {
       _checking = true;
       _error = null;
@@ -40,20 +46,28 @@ class _BiometricReauthOverlayState extends State<BiometricReauthOverlay> {
       return;
     }
 
-    final success = await BiometricHelper.authenticate(
+    final outcome = await BiometricHelper.authenticateDetailed(
       reason: 'Unlock ${AppConstants.appShortName}',
     );
 
     if (!mounted) return;
 
-    if (success) {
+    if (outcome == BiometricOutcome.success) {
       widget.onUnlocked();
     } else {
       setState(() {
         _checking = false;
-        _error = 'Fingerprint/Face not recognized. Try again.';
+        _error = BiometricHelper.messageFor(outcome);
       });
     }
+  }
+
+  void _logOutAndUsePassword() {
+    context.read<Session>().logout();
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      fadeSlideRoute(const LoginScreen()),
+      (route) => false,
+    );
   }
 
   @override
@@ -91,15 +105,24 @@ class _BiometricReauthOverlayState extends State<BiometricReauthOverlay> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 14),
-                  Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.danger)),
+                  ),
                 ],
                 const SizedBox(height: 24),
-                if (!_checking)
+                if (!_checking) ...[
                   ElevatedButton.icon(
                     onPressed: _tryUnlock,
                     icon: const Icon(Icons.fingerprint),
                     label: const Text('TRY AGAIN'),
                   ),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: _logOutAndUsePassword,
+                    child: const Text('Log Out & Use Password'),
+                  ),
+                ],
               ],
             ),
           ),

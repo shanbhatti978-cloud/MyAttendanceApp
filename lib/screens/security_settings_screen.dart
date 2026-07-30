@@ -45,11 +45,11 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen> {
             'No fingerprint or face unlock is set up on this phone yet. Add one in your phone\'s Settings > Security first.');
         return;
       }
-      final confirmed = await BiometricHelper.authenticate(
+      final outcome = await BiometricHelper.authenticateDetailed(
         reason: 'Confirm your fingerprint/face to enable biometric unlock',
       );
-      if (!confirmed) {
-        setState(() => _message = 'Could not confirm your fingerprint/face. Biometric unlock was not enabled.');
+      if (outcome != BiometricOutcome.success) {
+        setState(() => _message = BiometricHelper.messageFor(outcome));
         return;
       }
       await DBHelper.instance.enableBiometric(session.username!, session.role!);

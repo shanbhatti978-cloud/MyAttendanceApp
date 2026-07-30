@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
+import '../utils/biometric_helper.dart';
 import '../utils/biometric_reauth_overlay.dart';
 import '../utils/session.dart';
 
@@ -37,7 +38,14 @@ class _AppLifecycleLockState extends State<AppLifecycleLock> with WidgetsBinding
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    // IMPORTANT: only `paused` means the app was genuinely sent to the
+    // background. `inactive` is a much more transient state that also
+    // fires for things like the fingerprint sensor's own system prompt,
+    // incoming calls, or the notification shade — treating it the same
+    // as `paused` was causing a SECOND biometric prompt to be triggered
+    // on top of the first one the moment the fingerprint sheet opened,
+    // which is what produced the endless "Try Again" loop.
+    if (state == AppLifecycleState.paused) {
       _wasPaused = true;
     } else if (state == AppLifecycleState.resumed && _wasPaused) {
       _wasPaused = false;
@@ -46,6 +54,9 @@ class _AppLifecycleLockState extends State<AppLifecycleLock> with WidgetsBinding
   }
 
   Future<void> _maybeLock() async {
+    // Never stack a second prompt on top of one that's already showing.
+    if (BiometricHelper.isAuthenticating || _locked) return;
+
     final session = context.read<Session>();
     if (!session.isLoggedIn) return; // nothing to protect on the login/unlock screens themselves
 
