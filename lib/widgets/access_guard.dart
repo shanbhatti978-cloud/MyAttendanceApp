@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'constants.dart';
+import '../utils/constants.dart';
 
 /// Wrap any screen's body with this. If [allowed] is false, it shows a
 /// clear "not permitted" message instead of the real content — a
