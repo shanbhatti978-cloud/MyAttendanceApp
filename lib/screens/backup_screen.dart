@@ -1,10 +1,13 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../db/db_helper.dart';
 import '../utils/constants.dart';
+import '../utils/session.dart';
+import '../widgets/access_guard.dart';
 import '../widgets/app_drawer.dart';
 
 class BackupScreen extends StatefulWidget {
@@ -80,10 +83,14 @@ class _BackupScreenState extends State<BackupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = context.watch<Session>().permissions.isAdmin;
     return Scaffold(
       appBar: AppBar(title: const Text('Backup / Restore')),
       drawer: const AppDrawer(),
-      body: SingleChildScrollView(
+      body: AccessGuard(
+        allowed: isAdmin,
+        message: 'Backup and restore are Admin-only features to protect your data.',
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -160,6 +167,7 @@ class _BackupScreenState extends State<BackupScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

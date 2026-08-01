@@ -185,12 +185,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Default logins:\nAdmin → admin / admin123\nSupervisor → supervisor / super123',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 12, color: Colors.white70),
-                        ),
                       ],
                     ),
                   ),

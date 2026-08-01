@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../models/employee.dart';
 import '../utils/constants.dart';
+import '../utils/session.dart';
+import '../widgets/access_guard.dart';
 
 /// Handles BOTH "Add Employee" and "Edit Employee" — pass an existing
 /// [employee] to edit, or leave it null to create a new one.
@@ -19,7 +22,12 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _codeCtrl;
   late TextEditingController _nameCtrl;
+  late TextEditingController _fatherNameCtrl;
+  late TextEditingController _cnicCtrl;
+  late TextEditingController _mobileCtrl;
   late TextEditingController _designationCtrl;
+  late TextEditingController _departmentCtrl;
+  late TextEditingController _unitCtrl;
   late TextEditingController _shiftCtrl;
   late TextEditingController _remarksCtrl;
   late String _restDay;
@@ -36,7 +44,12 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
     final e = widget.employee;
     _codeCtrl = TextEditingController(text: e?.employeeCode ?? '');
     _nameCtrl = TextEditingController(text: e?.name ?? '');
+    _fatherNameCtrl = TextEditingController(text: e?.fatherName ?? '');
+    _cnicCtrl = TextEditingController(text: e?.cnic ?? '');
+    _mobileCtrl = TextEditingController(text: e?.mobileNumber ?? '');
     _designationCtrl = TextEditingController(text: e?.designation ?? '');
+    _departmentCtrl = TextEditingController(text: e?.department ?? '');
+    _unitCtrl = TextEditingController(text: e?.unitNumber ?? '');
     _shiftCtrl = TextEditingController(text: e?.shift ?? AppConstants.shifts.first);
     _remarksCtrl = TextEditingController(text: e?.remarks ?? '');
     _restDay = e?.weeklyRestDay ?? 'Sunday';
@@ -48,7 +61,12 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
   void dispose() {
     _codeCtrl.dispose();
     _nameCtrl.dispose();
+    _fatherNameCtrl.dispose();
+    _cnicCtrl.dispose();
+    _mobileCtrl.dispose();
     _designationCtrl.dispose();
+    _departmentCtrl.dispose();
+    _unitCtrl.dispose();
     _shiftCtrl.dispose();
     _remarksCtrl.dispose();
     super.dispose();
@@ -75,7 +93,12 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
       id: widget.employee?.id,
       employeeCode: _codeCtrl.text.trim(),
       name: _nameCtrl.text.trim(),
+      fatherName: _fatherNameCtrl.text.trim(),
+      cnic: _cnicCtrl.text.trim(),
+      mobileNumber: _mobileCtrl.text.trim(),
       designation: _designationCtrl.text.trim(),
+      department: _departmentCtrl.text.trim(),
+      unitNumber: _unitCtrl.text.trim(),
       shift: _shiftCtrl.text.trim(),
       weeklyRestDay: _restDay,
       joiningDate: DateFormat('yyyy-MM-dd').format(_joiningDate),
@@ -101,9 +124,13 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canManage = context.watch<Session>().permissions.canManageEmployees;
     return Scaffold(
       appBar: AppBar(title: Text(_isEdit ? 'Edit Employee' : 'Add Employee')),
-      body: SingleChildScrollView(
+      body: AccessGuard(
+        allowed: canManage,
+        message: 'Only Admin accounts can add or edit employee records.',
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
@@ -127,9 +154,36 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
+                    controller: _fatherNameCtrl,
+                    decoration: const InputDecoration(labelText: 'Father Name', prefixIcon: Icon(Icons.person_outline)),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _cnicCtrl,
+                    decoration: const InputDecoration(labelText: 'CNIC (optional)', prefixIcon: Icon(Icons.badge)),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _mobileCtrl,
+                    decoration: const InputDecoration(labelText: 'Mobile Number', prefixIcon: Icon(Icons.phone)),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _designationCtrl,
                     decoration: const InputDecoration(labelText: 'Designation *'),
                     validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _departmentCtrl,
+                    decoration: const InputDecoration(labelText: 'Department', prefixIcon: Icon(Icons.apartment)),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _unitCtrl,
+                    decoration: const InputDecoration(labelText: 'Unit Number', prefixIcon: Icon(Icons.factory)),
                   ),
                 ],
               ),
@@ -228,6 +282,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

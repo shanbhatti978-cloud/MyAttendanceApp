@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../models/employee.dart';
 import '../utils/constants.dart';
 import '../utils/page_transitions.dart';
 import '../utils/responsive.dart';
+import '../utils/session.dart';
 import '../widgets/app_drawer.dart';
 import 'employee_form_screen.dart';
 
@@ -95,17 +97,20 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   @override
   Widget build(BuildContext context) {
     final columns = Responsive.listGridColumns(context);
+    final canManage = context.watch<Session>().permissions.canManageEmployees;
     return Scaffold(
       appBar: AppBar(title: const Text('Employee Master')),
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: const Text('Add Employee'),
-        onPressed: () async {
-          await Navigator.push(context, fadeSlideRoute(const EmployeeFormScreen()));
-          _load();
-        },
-      ),
+      floatingActionButton: canManage
+          ? FloatingActionButton.extended(
+              icon: const Icon(Icons.add),
+              label: const Text('Add Employee'),
+              onPressed: () async {
+                await Navigator.push(context, fadeSlideRoute(const EmployeeFormScreen()));
+                _load();
+              },
+            )
+          : null,
       body: Column(
         children: [
           Padding(
@@ -186,7 +191,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                             ? ListView.builder(
                                 padding: const EdgeInsets.only(bottom: 90),
                                 itemCount: _employees.length,
-                                itemBuilder: (context, i) => _employeeCard(_employees[i], i),
+                                itemBuilder: (context, i) => _employeeCard(_employees[i], i, canManage),
                               )
                             : GridView.builder(
                                 padding: const EdgeInsets.only(bottom: 90, left: 8, right: 8),
@@ -196,7 +201,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                                   crossAxisSpacing: 4,
                                 ),
                                 itemCount: _employees.length,
-                                itemBuilder: (context, i) => _employeeCard(_employees[i], i),
+                                itemBuilder: (context, i) => _employeeCard(_employees[i], i, canManage),
                               ),
                       ),
           ),
@@ -205,7 +210,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     );
   }
 
-  Widget _employeeCard(Employee e, int index) {
+  Widget _employeeCard(Employee e, int index, bool canManage) {
     return TweenAnimationBuilder<double>(
       // Subtle fade+rise entry animation, staggered slightly per row so
       // the list feels alive without being distracting.
@@ -230,21 +235,25 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
             overflow: TextOverflow.ellipsis,
           ),
           isThreeLine: true,
-          trailing: PopupMenuButton<String>(
-            tooltip: 'More actions',
-            onSelected: (v) async {
-              if (v == 'edit') {
-                await Navigator.push(context, fadeSlideRoute(EmployeeFormScreen(employee: e)));
-                _load();
-              } else if (v == 'delete') {
-                _confirmDelete(e);
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'edit', child: Text('Edit')),
-              PopupMenuItem(value: 'delete', child: Text('Delete')),
-            ],
-          ),
+          // View-only roles (Supervisor/Viewer) never see edit/delete —
+          // employee master management is Admin-only.
+          trailing: canManage
+              ? PopupMenuButton<String>(
+                  tooltip: 'More actions',
+                  onSelected: (v) async {
+                    if (v == 'edit') {
+                      await Navigator.push(context, fadeSlideRoute(EmployeeFormScreen(employee: e)));
+                      _load();
+                    } else if (v == 'delete') {
+                      _confirmDelete(e);
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  ],
+                )
+              : null,
         ),
       ),
     );

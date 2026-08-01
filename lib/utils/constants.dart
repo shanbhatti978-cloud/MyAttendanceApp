@@ -19,6 +19,15 @@ class AppConstants {
     weeklyRest,
   ];
 
+  // Leave types for the Apply Leave workflow (Phase 4)
+  static const List<String> leaveTypes = [
+    "Casual Leave",
+    "Annual Leave",
+    "Medical Leave",
+    "Unpaid Leave",
+    "Half Day Leave",
+  ];
+
   static const List<String> shifts = ["Morning", "Evening", "Night", "A", "B", "C", "General"];
 
   static const List<String> weekdays = [
@@ -36,6 +45,8 @@ class AppConstants {
   // User roles
   static const String roleAdmin = "Admin";
   static const String roleSupervisor = "Supervisor";
+  static const String roleViewer = "Viewer";
+  static const List<String> allRoles = [roleAdmin, roleSupervisor, roleViewer];
 }
 
 /// Professional ERP-style color palette (blue/navy = trust + industrial feel)

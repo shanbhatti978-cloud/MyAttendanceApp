@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../models/attendance.dart';
 import '../models/employee.dart';
 import '../utils/constants.dart';
+import '../utils/session.dart';
+import '../widgets/access_guard.dart';
 import '../widgets/app_drawer.dart';
 
 /// Lets a supervisor record a Leave (or any status) for an employee on
@@ -99,10 +102,14 @@ class _LeaveEntryScreenState extends State<LeaveEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canManageLeave = context.watch<Session>().permissions.canManageLeave;
     return Scaffold(
       appBar: AppBar(title: const Text('Advance Leave Entry')),
       drawer: const AppDrawer(),
-      body: Column(
+      body: AccessGuard(
+        allowed: canManageLeave,
+        message: 'Viewer accounts cannot enter leave. Please contact your Admin or Supervisor.',
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
@@ -223,6 +230,7 @@ class _LeaveEntryScreenState extends State<LeaveEntryScreen> {
               ),
             ),
         ],
+      ),
       ),
     );
   }

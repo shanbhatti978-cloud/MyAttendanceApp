@@ -1,12 +1,14 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../db/db_helper.dart';
 import '../../utils/constants.dart';
 import '../../utils/data_bus.dart';
 import '../../utils/page_transitions.dart';
 import '../../utils/responsive.dart';
+import '../../utils/session.dart';
 import '../leave_entry_screen.dart';
 
 /// Tells a supervisor, before or during a shift, exactly how much
@@ -28,6 +30,7 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
   String _designationFilter = 'All';
   String _employeeQuery = '';
   Map<String, dynamic>? _report;
+  Map<String, Map<String, int>> _manpowerRules = {}; // designation -> {min, max}
   bool _loading = true;
 
   String get _dbDate => DateFormat('yyyy-MM-dd').format(_date);
@@ -55,9 +58,14 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
   Future<void> _init() async {
     final shifts = await DBHelper.instance.getDistinctShifts();
     final designations = await DBHelper.instance.getDistinctDesignations();
+    final rules = await DBHelper.instance.getManpowerRules();
     setState(() {
       _shifts = shifts;
       _designations = designations;
+      _manpowerRules = {
+        for (final r in rules)
+          r['designation'] as String: {'min': r['min_required'] as int, 'max': r['max_required'] as int}
+      };
     });
     await _load();
   }
@@ -91,6 +99,7 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
 
   @override
   Widget build(BuildContext context) {
+    final canManageLeave = context.watch<Session>().permissions.canManageLeave;
     if (_loading && _report == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -111,7 +120,7 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12),
         children: [
-          _buildFilters(),
+          _buildFilters(canManageLeave),
           const SizedBox(height: 14),
           _buildShiftDashboard(report),
           const SizedBox(height: 18),
@@ -164,7 +173,7 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
   Widget _sectionTitle(String text) =>
       Text(text, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.primary));
 
-  Widget _buildFilters() {
+  Widget _buildFilters(bool canManageLeave) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -206,18 +215,20 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await Navigator.push(context, fadeSlideRoute(const LeaveEntryScreen()));
-                  _load();
-                },
-                icon: const Icon(Icons.event_busy),
-                label: const Text('Enter Leave for an Employee'),
+            if (canManageLeave) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(context, fadeSlideRoute(const LeaveEntryScreen()));
+                    _load();
+                  },
+                  icon: const Icon(Icons.event_busy),
+                  label: const Text('Enter Leave for an Employee'),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -328,6 +339,11 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
   }
 
   Widget _buildDesignationCard(Map<String, dynamic> d) {
+    final designation = d['designation'] as String;
+    final rule = _manpowerRules[designation];
+    final available = d['availableManpower'] as int;
+    final isShort = rule != null && available < rule['min']!;
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 5),
       child: Padding(
@@ -335,7 +351,41 @@ class _ShiftPlanningTabState extends State<ShiftPlanningTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(d['designation'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(designation, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+                if (rule != null)
+                  Text('Req: ${rule['min']}-${rule['max']}',
+                      style: const TextStyle(fontSize: 11, color: Colors.black45)),
+              ],
+            ),
+            if (isShort) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber, color: AppColors.danger, size: 16),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Shortage: $available available, ${rule['min']} required '
+                        '(${rule['min']! - available} short)',
+                        style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

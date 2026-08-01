@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../models/attendance.dart';
 import '../models/employee.dart';
 import '../utils/constants.dart';
+import '../utils/session.dart';
 import '../widgets/app_drawer.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -86,18 +88,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canEdit = context.watch<Session>().permissions.canEditAttendance;
     return Scaffold(
       appBar: AppBar(title: const Text('Daily Attendance')),
       drawer: const AppDrawer(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _saving ? null : _saveAll,
-        icon: _saving
-            ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-            : const Icon(Icons.save),
-        label: const Text('Save All'),
-      ),
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+              onPressed: _saving ? null : _saveAll,
+              icon: _saving
+                  ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.save),
+              label: const Text('Save All'),
+            )
+          : null,
       body: Column(
         children: [
+          if (!canEdit)
+            Container(
+              width: double.infinity,
+              color: AppColors.warning.withValues(alpha: 0.10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: const Row(
+                children: [
+                  Icon(Icons.visibility_outlined, size: 16, color: AppColors.warning),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text('View only — only Admin can edit attendance records.',
+                        style: TextStyle(fontSize: 12, color: AppColors.warning)),
+                  ),
+                ],
+              ),
+            ),
           Container(
             width: double.infinity,
             color: AppColors.primary.withValues(alpha: 0.08),
@@ -153,7 +174,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                           color: selected ? Colors.white : Colors.black87,
                                           fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                                         ),
-                                        onSelected: (_) => setState(() => _statuses[e.id!] = s),
+                                        onSelected: canEdit ? (_) => setState(() => _statuses[e.id!] = s) : null,
                                       );
                                     }).toList(),
                                   ),

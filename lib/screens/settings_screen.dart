@@ -8,6 +8,7 @@ import '../utils/session.dart';
 import '../utils/theme_controller.dart';
 import '../widgets/app_drawer.dart';
 import 'security_settings_screen.dart';
+import 'user_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -89,6 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = context.watch<Session>().permissions.isAdmin;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       drawer: const AppDrawer(),
@@ -97,6 +99,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (isAdmin) ...[
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.manage_accounts, color: AppColors.primary, size: 32),
+                      title: const Text('User Management', style: TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: const Text('Add, edit, and remove user accounts & roles'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.push(context, fadeSlideRoute(const UserManagementScreen()));
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.fingerprint, color: AppColors.primary, size: 32),
@@ -121,34 +137,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 8),
-                const Text('Company Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _companyNameCtrl,
-                  decoration: const InputDecoration(labelText: 'Company Name'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _companyAddressCtrl,
-                  decoration: const InputDecoration(labelText: 'Address'),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _companyPhoneCtrl,
-                  decoration: const InputDecoration(labelText: 'Phone Number'),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 14),
-                ElevatedButton(
-                  onPressed: _savingCompany ? null : _saveCompany,
-                  child: _savingCompany
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('SAVE COMPANY INFO'),
-                ),
+                if (isAdmin) ...[
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text('Company Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _companyNameCtrl,
+                    decoration: const InputDecoration(labelText: 'Company Name'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _companyAddressCtrl,
+                    decoration: const InputDecoration(labelText: 'Address'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _companyPhoneCtrl,
+                    decoration: const InputDecoration(labelText: 'Phone Number'),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton(
+                    onPressed: _savingCompany ? null : _saveCompany,
+                    child: _savingCompany
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : const Text('SAVE COMPANY INFO'),
+                  ),
+                ],
                 const SizedBox(height: 32),
                 const Divider(),
                 const SizedBox(height: 12),

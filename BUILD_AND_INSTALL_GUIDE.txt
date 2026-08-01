@@ -135,6 +135,34 @@ STEP 5 - Install it on your phone
     Supervisor login:  supervisor / super123
     (Change these immediately from Settings > Change Password.)
 
+    Also new in this version: Employee Master now includes Father Name,
+    CNIC, and Mobile Number. A complete Leave Apply -> Approve/Reject
+    workflow has been added (drawer > "Leave Requests" to review, or
+    "Apply Leave" to submit a request) — approved requests automatically
+    mark attendance as Leave for the requested dates. An in-app
+    Notification Center (bell icon on the Dashboard) tracks leave
+    requests/decisions. Admin can also set minimum/maximum manpower
+    requirements per designation (drawer > "Manpower Rules"), which
+    power shortage warnings on the Shift Planning report.
+
+    Note: the original spec for this round also requested cloud sync
+    (Supabase/PostgreSQL), a separate web admin dashboard, and push
+    notifications between different phones. Those need infrastructure
+    outside this Flutter project (a cloud account, a backend, and a
+    separate web codebase) and were intentionally left out of this
+    build — everything above works fully offline on-device, same as
+    the rest of the app.
+
+    Also new in this version: a full role-based access control system.
+    There are now three roles — Admin (full control), Supervisor
+    (operational access + leave management), and Viewer (read-only).
+    Log in as Admin, then go to Settings > User Management to create
+    Supervisor/Viewer accounts for your team. Employee Master now also
+    supports Department and Unit Number fields, and Reports gained
+    Unit-Wise, Department-Wise, and Individual Employee History tabs.
+    Existing employees/attendance data is untouched and carries over
+    automatically (existing admin/supervisor logins keep working).
+
     New: after logging in, open Settings > Security Settings (or the
     drawer) to turn on Fingerprint / Face Unlock. Your password always
     keeps working as a backup.

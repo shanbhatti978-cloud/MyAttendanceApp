@@ -9,15 +9,17 @@ import '../../utils/data_bus.dart';
 import '../../utils/export_helper.dart';
 import '../../utils/session.dart';
 
-class MonthlyReportTab extends StatefulWidget {
-  const MonthlyReportTab({super.key});
+class UnitReportTab extends StatefulWidget {
+  const UnitReportTab({super.key});
 
   @override
-  State<MonthlyReportTab> createState() => _MonthlyReportTabState();
+  State<UnitReportTab> createState() => _UnitReportTabState();
 }
 
-class _MonthlyReportTabState extends State<MonthlyReportTab> {
+class _UnitReportTabState extends State<UnitReportTab> {
   DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  List<String> _availableUnits = [];
+  String? _selectedUnit;
   List<Map<String, dynamic>> _report = [];
   bool _loading = true;
   bool _exporting = false;
@@ -30,7 +32,7 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
   void initState() {
     super.initState();
     DataBus.instance.addListener(_onDataChanged);
-    _load();
+    _init();
   }
 
   @override
@@ -43,9 +45,24 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
     if (mounted) _load();
   }
 
+  Future<void> _init() async {
+    final units = await DBHelper.instance.getDistinctUnits();
+    setState(() {
+      _availableUnits = units;
+      _selectedUnit = units.isNotEmpty ? units.first : null;
+    });
+    if (_selectedUnit != null) await _load();
+    setState(() => _loading = false);
+  }
+
   Future<void> _load() async {
+    if (_selectedUnit == null) return;
     setState(() => _loading = true);
-    final report = await DBHelper.instance.getMonthlyReport(_month.year, _month.month);
+    final report = await DBHelper.instance.getMonthlyReport(
+      _month.year,
+      _month.month,
+      unitFilter: _selectedUnit!,
+    );
     _applySort(report);
     setState(() {
       _report = report;
@@ -84,15 +101,24 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
   }
 
   Future<void> _export(bool asExcel) async {
+    if (_selectedUnit == null) return;
     setState(() => _exporting = true);
     final companyName = await DBHelper.instance.getSetting('company_name', fallback: 'My Company');
     try {
       if (asExcel) {
-        await ExportHelper.exportMonthlyReportExcel(
-            report: _report, monthLabel: _monthLabel.replaceAll(' ', '_'), companyName: companyName);
+        await ExportHelper.exportUnitReportExcel(
+          report: _report,
+          unit: _selectedUnit!,
+          monthLabel: _monthLabel.replaceAll(' ', '_'),
+          companyName: companyName,
+        );
       } else {
-        await ExportHelper.exportMonthlyReportPdf(
-            report: _report, monthLabel: _monthLabel.replaceAll(' ', '_'), companyName: companyName);
+        await ExportHelper.exportUnitReportPdf(
+          report: _report,
+          unit: _selectedUnit!,
+          monthLabel: _monthLabel.replaceAll(' ', '_'),
+          companyName: companyName,
+        );
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -102,51 +128,60 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
   @override
   Widget build(BuildContext context) {
     final canExport = context.watch<Session>().permissions.canExportReports;
-    final totals = _report.fold<Map<String, num>>(
-      {'present': 0, 'absent': 0, 'leave': 0, 'weeklyRest': 0},
-      (acc, r) {
-        acc['present'] = acc['present']! + r['present'] as int;
-        acc['absent'] = acc['absent']! + r['absent'] as int;
-        acc['leave'] = acc['leave']! + r['leave'] as int;
-        acc['weeklyRest'] = acc['weeklyRest']! + r['weeklyRest'] as int;
-        return acc;
-      },
-    );
+
+    if (_availableUnits.isEmpty && !_loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('No employees with a Unit Number assigned yet. Add a Unit Number in Employee Master first.',
+              textAlign: TextAlign.center),
+        ),
+      );
+    }
 
     return Column(
       children: [
         Container(
           color: AppColors.primary.withValues(alpha: 0.08),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
             children: [
-              IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => _changeMonth(-1)),
-              Expanded(
-                child: Text(_monthLabel,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
+              Row(
+                children: [
+                  IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => _changeMonth(-1)),
+                  Expanded(
+                    child: Text(_monthLabel,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
+                  ),
+                  IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _changeMonth(1)),
+                ],
               ),
-              IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _changeMonth(1)),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.factory, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  const Text('Unit: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                  Expanded(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedUnit,
+                      items: _availableUnits.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      onChanged: (v) {
+                        setState(() => _selectedUnit = v);
+                        _load();
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
-        if (!_loading)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _summaryChip('Present', totals['present']!, AppColors.success),
-                _summaryChip('Absent', totals['absent']!, AppColors.danger),
-                _summaryChip('Leave', totals['leave']!, AppColors.warning),
-                _summaryChip('Weekly Rest', totals['weeklyRest']!, AppColors.rest),
-              ],
-            ),
-          ),
         if (canExport)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
                 Expanded(
@@ -166,8 +201,7 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
                 ),
               ],
             ),
-        ),
-        const SizedBox(height: 8),
+          ),
         if (!_loading && _report.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -191,12 +225,12 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
               ],
             ),
           ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _report.isEmpty
-                  ? const Center(child: Text('No employees to report on yet.'))
+                  ? const Center(child: Text('No employees in this unit.'))
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 16),
                       itemCount: _report.length,
@@ -208,8 +242,9 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
                           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           child: ListTile(
                             title: Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text('P:${row['present']}  A:${row['absent']}  '
-                                'L:${row['leave']}  WR:${row['weeklyRest']}'),
+                            subtitle: Text('${emp.employeeCode} • ${emp.designation}\n'
+                                'P:${row['present']}  A:${row['absent']}  L:${row['leave']}  WR:${row['weeklyRest']}'),
+                            isThreeLine: true,
                             trailing: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -232,13 +267,6 @@ class _MonthlyReportTabState extends State<MonthlyReportTab> {
                     ),
         ),
       ],
-    );
-  }
-
-  Widget _summaryChip(String label, num value, Color color) {
-    return Chip(
-      backgroundColor: color.withValues(alpha: 0.12),
-      label: Text('$label: $value', style: TextStyle(color: color, fontWeight: FontWeight.bold)),
     );
   }
 }

@@ -36,10 +36,13 @@ class DBHelper {
     final path = await dbPath;
     return openDatabase(
       path,
-      // v2 added performance indexes; v3 adds the activity_log table
-      // used by the Dashboard's Recent Activities feed. Both migrations
-      // run automatically for anyone upgrading from an earlier install.
-      version: 3,
+      // v2 added performance indexes; v3 added activity_log; v4 added
+      // Department/Unit Number; v5 adds Father Name/CNIC/Mobile Number
+      // to employees, plus leave_requests, notifications, and
+      // manpower_rules tables. All migrations run automatically for
+      // anyone upgrading from an earlier install — existing employees/
+      // attendance/settings are never touched.
+      version: 5,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: _createTables,
       onUpgrade: _onUpgrade,
@@ -68,6 +71,74 @@ class DBHelper {
       ''');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log (timestamp)');
     }
+    if (oldVersion < 4) {
+      // ADD COLUMN with a default is non-destructive — every existing
+      // employee simply gets an empty department/unit until edited.
+      final cols = await db.rawQuery("PRAGMA table_info(employees)");
+      final existingCols = cols.map((c) => c['name'] as String).toSet();
+      if (!existingCols.contains('department')) {
+        await db.execute("ALTER TABLE employees ADD COLUMN department TEXT NOT NULL DEFAULT ''");
+      }
+      if (!existingCols.contains('unit_number')) {
+        await db.execute("ALTER TABLE employees ADD COLUMN unit_number TEXT NOT NULL DEFAULT ''");
+      }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_department ON employees (department)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_unit ON employees (unit_number)');
+    }
+    if (oldVersion < 5) {
+      final cols = await db.rawQuery("PRAGMA table_info(employees)");
+      final existingCols = cols.map((c) => c['name'] as String).toSet();
+      if (!existingCols.contains('father_name')) {
+        await db.execute("ALTER TABLE employees ADD COLUMN father_name TEXT NOT NULL DEFAULT ''");
+      }
+      if (!existingCols.contains('cnic')) {
+        await db.execute("ALTER TABLE employees ADD COLUMN cnic TEXT NOT NULL DEFAULT ''");
+      }
+      if (!existingCols.contains('mobile_number')) {
+        await db.execute("ALTER TABLE employees ADD COLUMN mobile_number TEXT NOT NULL DEFAULT ''");
+      }
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS leave_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          employee_id INTEGER NOT NULL,
+          leave_type TEXT NOT NULL,
+          from_date TEXT NOT NULL,
+          to_date TEXT NOT NULL,
+          reason TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'Pending',
+          applied_by TEXT NOT NULL DEFAULT '',
+          applied_at TEXT NOT NULL,
+          decided_by TEXT,
+          decided_at TEXT,
+          remarks TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests (status)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests (employee_id)');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          message TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'info',
+          related_id INTEGER,
+          is_read INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at)');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS manpower_rules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          designation TEXT UNIQUE NOT NULL,
+          min_required INTEGER NOT NULL DEFAULT 0,
+          max_required INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -85,12 +156,60 @@ class DBHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         employee_code TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
+        father_name TEXT NOT NULL DEFAULT '',
+        cnic TEXT NOT NULL DEFAULT '',
+        mobile_number TEXT NOT NULL DEFAULT '',
         designation TEXT NOT NULL,
+        department TEXT NOT NULL DEFAULT '',
+        unit_number TEXT NOT NULL DEFAULT '',
         shift TEXT NOT NULL,
         weekly_rest_day TEXT NOT NULL,
         joining_date TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'Active',
         remarks TEXT DEFAULT ''
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_department ON employees (department)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_unit ON employees (unit_number)');
+
+    await db.execute('''
+      CREATE TABLE leave_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        leave_type TEXT NOT NULL,
+        from_date TEXT NOT NULL,
+        to_date TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'Pending',
+        applied_by TEXT NOT NULL DEFAULT '',
+        applied_at TEXT NOT NULL,
+        decided_by TEXT,
+        decided_at TEXT,
+        remarks TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests (status)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests (employee_id)');
+
+    await db.execute('''
+      CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'info',
+        related_id INTEGER,
+        is_read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at)');
+
+    await db.execute('''
+      CREATE TABLE manpower_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        designation TEXT UNIQUE NOT NULL,
+        min_required INTEGER NOT NULL DEFAULT 0,
+        max_required INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -180,6 +299,86 @@ class DBHelper {
     return count > 0;
   }
 
+  // ---------------- USER MANAGEMENT (Admin only) ----------------
+
+  /// All application users (id, username, role) — password hashes are
+  /// never returned to the UI layer.
+  Future<List<Map<String, dynamic>>> getUsers() async {
+    final db = await database;
+    return db.query('users', columns: ['id', 'username', 'role'], orderBy: 'username ASC');
+  }
+
+  Future<int> countAdmins() async {
+    final db = await database;
+    final result = await db.rawQuery(
+        "SELECT COUNT(*) as c FROM users WHERE role = ?", [AppConstants.roleAdmin]);
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Creates a new user account. Returns an error message string on
+  /// failure (e.g. duplicate username), or null on success.
+  Future<String?> createUser(String username, String password, String role) async {
+    final db = await database;
+    try {
+      await db.insert('users', {
+        'username': username.trim(),
+        'password_hash': _hash(password),
+        'role': role,
+      });
+      await logActivity('Created user "$username" ($role)', iconType: 'employee');
+      return null;
+    } catch (e) {
+      return 'Username "$username" is already taken.';
+    }
+  }
+
+  /// Changes a user's role. Refuses if this would remove the very last
+  /// Admin account, since that would permanently lock everyone out of
+  /// user management and system settings.
+  Future<String?> updateUserRole(int userId, String newRole) async {
+    final db = await database;
+    final rows = await db.query('users', where: 'id = ?', whereArgs: [userId]);
+    if (rows.isEmpty) return 'User not found.';
+    final current = rows.first;
+
+    if (current['role'] == AppConstants.roleAdmin && newRole != AppConstants.roleAdmin) {
+      final adminCount = await countAdmins();
+      if (adminCount <= 1) {
+        return 'Cannot change this role — at least one Admin account must always remain.';
+      }
+    }
+
+    await db.update('users', {'role': newRole}, where: 'id = ?', whereArgs: [userId]);
+    await logActivity('Changed "${current['username']}" role to $newRole', iconType: 'employee');
+    return null;
+  }
+
+  /// Admin-initiated password reset for another user (no old-password
+  /// check needed, since Admin is trusted to manage all accounts).
+  Future<void> resetUserPassword(int userId, String newPassword) async {
+    final db = await database;
+    await db.update('users', {'password_hash': _hash(newPassword)}, where: 'id = ?', whereArgs: [userId]);
+  }
+
+  /// Deletes a user account. Refuses if this is the last remaining Admin.
+  Future<String?> deleteUser(int userId) async {
+    final db = await database;
+    final rows = await db.query('users', where: 'id = ?', whereArgs: [userId]);
+    if (rows.isEmpty) return 'User not found.';
+    final user = rows.first;
+
+    if (user['role'] == AppConstants.roleAdmin) {
+      final adminCount = await countAdmins();
+      if (adminCount <= 1) {
+        return 'Cannot delete the last remaining Admin account.';
+      }
+    }
+
+    await db.delete('users', where: 'id = ?', whereArgs: [userId]);
+    await logActivity('Removed user "${user['username']}"', iconType: 'employee');
+    return null;
+  }
+
   // ---------------- EMPLOYEES ----------------
 
   Future<int> insertEmployee(Employee e) async {
@@ -210,7 +409,14 @@ class DBHelper {
     return count;
   }
 
-  Future<List<Employee>> getEmployees({String query = '', String statusFilter = 'All', String shiftFilter = 'All'}) async {
+  Future<List<Employee>> getEmployees({
+    String query = '',
+    String statusFilter = 'All',
+    String shiftFilter = 'All',
+    String designationFilter = 'All',
+    String departmentFilter = 'All',
+    String unitFilter = 'All',
+  }) async {
     final db = await database;
     String where = '';
     List<Object?> args = [];
@@ -228,6 +434,21 @@ class DBHelper {
       if (where.isNotEmpty) where += ' AND ';
       where += 'shift = ?';
       args.add(shiftFilter);
+    }
+    if (designationFilter != 'All') {
+      if (where.isNotEmpty) where += ' AND ';
+      where += 'designation = ?';
+      args.add(designationFilter);
+    }
+    if (departmentFilter != 'All') {
+      if (where.isNotEmpty) where += ' AND ';
+      where += 'department = ?';
+      args.add(departmentFilter);
+    }
+    if (unitFilter != 'All') {
+      if (where.isNotEmpty) where += ' AND ';
+      where += 'unit_number = ?';
+      args.add(unitFilter);
     }
 
     final rows = await db.query(
@@ -254,6 +475,24 @@ class DBHelper {
     final db = await database;
     final rows = await db.rawQuery('SELECT DISTINCT designation FROM employees ORDER BY designation ASC');
     return rows.map((r) => r['designation'] as String).toList();
+  }
+
+  /// Distinct departments in use (blank entries excluded) — powers the
+  /// Department-Wise Report filter.
+  Future<List<String>> getDistinctDepartments() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        "SELECT DISTINCT department FROM employees WHERE department != '' ORDER BY department ASC");
+    return rows.map((r) => r['department'] as String).toList();
+  }
+
+  /// Distinct unit numbers in use (blank entries excluded) — powers the
+  /// Unit-Wise Report filter.
+  Future<List<String>> getDistinctUnits() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        "SELECT DISTINCT unit_number FROM employees WHERE unit_number != '' ORDER BY unit_number ASC");
+    return rows.map((r) => r['unit_number'] as String).toList();
   }
 
   Future<Employee?> getEmployeeById(int id) async {
@@ -324,6 +563,53 @@ class DBHelper {
     final db = await database;
     final rows = await db.query('attendance', where: 'date = ?', whereArgs: [date]);
     return {for (final r in rows) r['employee_id'] as int: r['status'] as String};
+  }
+
+  /// Complete date-wise attendance history for ONE employee (the
+  /// "Individual Employee History Report"), optionally bounded to a
+  /// date range. Returns both the raw date-wise records and the
+  /// summary totals (present/absent/leave/weekly rest/percentage) so
+  /// the screen doesn't need a second query to show both.
+  Future<Map<String, dynamic>> getEmployeeHistory(
+    int employeeId, {
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final db = await database;
+    String where = 'employee_id = ?';
+    final args = <Object?>[employeeId];
+    if (fromDate != null) {
+      where += ' AND date >= ?';
+      args.add(fromDate);
+    }
+    if (toDate != null) {
+      where += ' AND date <= ?';
+      args.add(toDate);
+    }
+
+    final rows = await db.query('attendance', where: where, whereArgs: args, orderBy: 'date DESC');
+
+    int present = 0, absent = 0, leaveCount = 0, rest = 0;
+    for (final r in rows) {
+      final status = r['status'] as String;
+      if (status == AppConstants.present) present++;
+      if (status == AppConstants.absent) absent++;
+      if (status == AppConstants.leave) leaveCount++;
+      if (status == AppConstants.weeklyRest) rest++;
+    }
+    final totalMarked = present + absent + leaveCount + rest;
+    final workingDays = totalMarked - rest;
+    final pct = workingDays > 0 ? (present / workingDays * 100) : 0.0;
+
+    return {
+      'records': rows.map((r) => {'date': r['date'] as String, 'status': r['status'] as String}).toList(),
+      'totalMarked': totalMarked,
+      'present': present,
+      'absent': absent,
+      'leave': leaveCount,
+      'weeklyRest': rest,
+      'percentage': pct,
+    };
   }
 
   /// Per-employee attendance status for one specific date — powers the
@@ -495,7 +781,14 @@ class DBHelper {
 
   /// Monthly report: per-employee counts of each status + attendance %.
   /// Optionally restrict to a single shift for the Shift-Wise Report.
-  Future<List<Map<String, dynamic>>> getMonthlyReport(int year, int month, {String shiftFilter = 'All'}) async {
+  Future<List<Map<String, dynamic>>> getMonthlyReport(
+    int year,
+    int month, {
+    String shiftFilter = 'All',
+    String designationFilter = 'All',
+    String departmentFilter = 'All',
+    String unitFilter = 'All',
+  }) async {
     final db = await database;
     final monthStr = month.toString().padLeft(2, '0');
     final prefix = '$year-$monthStr';
@@ -503,6 +796,9 @@ class DBHelper {
     final employees = await getEmployees(
       statusFilter: 'Active',
       shiftFilter: shiftFilter,
+      designationFilter: designationFilter,
+      departmentFilter: departmentFilter,
+      unitFilter: unitFilter,
     );
 
     // Single grouped query for the WHOLE month, regardless of how many
@@ -587,6 +883,195 @@ class DBHelper {
   Future<List<Map<String, dynamic>>> getRecentActivities({int limit = 8}) async {
     final db = await database;
     return db.query('activity_log', orderBy: 'timestamp DESC', limit: limit);
+  }
+
+  // ---------------- LEAVE REQUESTS (apply / approve / reject workflow) ----------------
+
+  /// Submits a new leave request in "Pending" status. This is separate
+  /// from the existing Advance Leave Entry (which marks attendance
+  /// immediately) — this goes through an approval step first, and only
+  /// updates attendance once Admin/Supervisor approves it.
+  Future<void> createLeaveRequest({
+    required int employeeId,
+    required String leaveType,
+    required String fromDate,
+    required String toDate,
+    required String reason,
+    required String appliedBy,
+  }) async {
+    final db = await database;
+    await db.insert('leave_requests', {
+      'employee_id': employeeId,
+      'leave_type': leaveType,
+      'from_date': fromDate,
+      'to_date': toDate,
+      'reason': reason,
+      'status': 'Pending',
+      'applied_by': appliedBy,
+      'applied_at': DateTime.now().toIso8601String(),
+    });
+
+    final emp = await getEmployeeById(employeeId);
+    await logActivity('Leave requested for ${emp?.name ?? 'employee'} ($leaveType)', iconType: 'leave');
+    await createNotification(
+      'New leave request: ${emp?.name ?? 'Employee'} ($leaveType, $fromDate to $toDate)',
+      type: 'leave_request',
+    );
+    DataBus.instance.notifyChanged();
+  }
+
+  /// All leave requests, optionally filtered by status ("Pending",
+  /// "Approved", "Rejected", or "All"), newest first, each joined with
+  /// its employee record for display.
+  Future<List<Map<String, dynamic>>> getLeaveRequests({String statusFilter = 'All'}) async {
+    final db = await database;
+    final rows = await db.query(
+      'leave_requests',
+      where: statusFilter == 'All' ? null : 'status = ?',
+      whereArgs: statusFilter == 'All' ? null : [statusFilter],
+      orderBy: 'applied_at DESC',
+    );
+
+    final List<Map<String, dynamic>> result = [];
+    for (final r in rows) {
+      final emp = await getEmployeeById(r['employee_id'] as int);
+      result.add({...r, 'employee': emp});
+    }
+    return result;
+  }
+
+  Future<int> countPendingLeaveRequests() async {
+    final db = await database;
+    final result = await db.rawQuery("SELECT COUNT(*) as c FROM leave_requests WHERE status = 'Pending'");
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Approves or rejects a pending leave request. On approval, attendance
+  /// is automatically marked as "Leave" for every date in the range —
+  /// this is the ONE place leave decisions touch attendance, keeping the
+  /// existing attendance logic itself completely untouched.
+  Future<void> decideLeaveRequest({
+    required int requestId,
+    required bool approve,
+    required String decidedBy,
+    String remarks = '',
+  }) async {
+    final db = await database;
+    final rows = await db.query('leave_requests', where: 'id = ?', whereArgs: [requestId]);
+    if (rows.isEmpty) return;
+    final request = rows.first;
+
+    final newStatus = approve ? 'Approved' : 'Rejected';
+    await db.update(
+      'leave_requests',
+      {
+        'status': newStatus,
+        'decided_by': decidedBy,
+        'decided_at': DateTime.now().toIso8601String(),
+        'remarks': remarks,
+      },
+      where: 'id = ?',
+      whereArgs: [requestId],
+    );
+
+    final employeeId = request['employee_id'] as int;
+    final emp = await getEmployeeById(employeeId);
+
+    if (approve) {
+      await _markLeaveRange(employeeId, request['from_date'] as String, request['to_date'] as String);
+    }
+
+    await logActivity(
+      'Leave request for ${emp?.name ?? 'employee'} $newStatus by $decidedBy',
+      iconType: 'leave',
+    );
+    await createNotification(
+      'Leave request for ${emp?.name ?? 'employee'} was $newStatus',
+      type: 'leave_decision',
+      relatedId: requestId,
+    );
+    DataBus.instance.notifyChanged();
+  }
+
+  /// Marks every date in an inclusive range as "Leave" in one batch —
+  /// used internally when a leave request is approved. Uses the same
+  /// UNIQUE(employee_id, date) ON CONFLICT REPLACE guarantee as the rest
+  /// of the app, so it can never create duplicate attendance rows.
+  Future<void> _markLeaveRange(int employeeId, String fromDate, String toDate) async {
+    final db = await database;
+    final start = DateTime.parse(fromDate);
+    final end = DateTime.parse(toDate);
+    final batch = db.batch();
+    for (DateTime d = start; !d.isAfter(end); d = d.add(const Duration(days: 1))) {
+      final dateStr = DateFormat('yyyy-MM-dd').format(d);
+      batch.insert(
+        'attendance',
+        {'employee_id': employeeId, 'date': dateStr, 'status': AppConstants.leave},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  // ---------------- NOTIFICATIONS ----------------
+
+  Future<void> createNotification(String message, {String type = 'info', int? relatedId}) async {
+    final db = await database;
+    await db.insert('notifications', {
+      'message': message,
+      'type': type,
+      'related_id': relatedId,
+      'is_read': 0,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getNotifications({int limit = 100}) async {
+    final db = await database;
+    return db.query('notifications', orderBy: 'created_at DESC', limit: limit);
+  }
+
+  Future<int> countUnreadNotifications() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as c FROM notifications WHERE is_read = 0');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<void> markNotificationRead(int id) async {
+    final db = await database;
+    await db.update('notifications', {'is_read': 1}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> markAllNotificationsRead() async {
+    final db = await database;
+    await db.update('notifications', {'is_read': 1}, where: 'is_read = 0');
+  }
+
+  Future<void> deleteNotification(int id) async {
+    final db = await database;
+    await db.delete('notifications', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ---------------- MANPOWER RULES (min/max staffing per designation) ----------------
+
+  Future<List<Map<String, dynamic>>> getManpowerRules() async {
+    final db = await database;
+    return db.query('manpower_rules', orderBy: 'designation ASC');
+  }
+
+  /// Creates or updates the min/max rule for a designation.
+  Future<void> setManpowerRule(String designation, int min, int max) async {
+    final db = await database;
+    await db.insert(
+      'manpower_rules',
+      {'designation': designation, 'min_required': min, 'max_required': max},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteManpowerRule(String designation) async {
+    final db = await database;
+    await db.delete('manpower_rules', where: 'designation = ?', whereArgs: [designation]);
   }
 
   // ---------------- BIOMETRIC LOGIN ----------------

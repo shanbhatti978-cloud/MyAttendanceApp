@@ -1,7 +1,7 @@
 name: rams_app
 description: Reliance Attendance Management System (RAMS) - Offline Android app
 publish_to: 'none'
-version: 1.2.1+4
+version: 1.4.0+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

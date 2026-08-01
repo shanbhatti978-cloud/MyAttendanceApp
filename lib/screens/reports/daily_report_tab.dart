@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../../db/db_helper.dart';
 import '../../models/employee.dart';
 import '../../utils/constants.dart';
 import '../../utils/data_bus.dart';
 import '../../utils/export_helper.dart';
+import '../../utils/session.dart';
 
 class DailyReportTab extends StatefulWidget {
   const DailyReportTab({super.key});
@@ -80,6 +82,7 @@ class _DailyReportTabState extends State<DailyReportTab> {
 
   @override
   Widget build(BuildContext context) {
+    final canExport = context.watch<Session>().permissions.canExportReports;
     final totals = <String, int>{
       AppConstants.present: 0,
       AppConstants.absent: 0,
@@ -127,7 +130,8 @@ class _DailyReportTabState extends State<DailyReportTab> {
               ],
             ),
           ),
-        Padding(
+        if (canExport)
+          Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [

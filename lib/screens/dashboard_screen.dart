@@ -1,17 +1,20 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../db/db_helper.dart';
 import '../utils/constants.dart';
 import '../utils/data_bus.dart';
 import '../utils/page_transitions.dart';
 import '../utils/responsive.dart';
+import '../utils/session.dart';
 import '../utils/time_ago.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/stat_card.dart';
 import 'attendance_screen.dart';
 import 'leave_entry_screen.dart';
+import 'notifications_screen.dart';
 import 'reports/reports_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -23,6 +26,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int totalEmployees = 0;
+  int unreadNotifications = 0;
   Map<String, int> todaySummary = {};
   List<int> weekTrend = []; // Present count for each of the last 7 days
   List<double> monthlyWeeklyPresent = []; // Present sum per week-of-month bucket
@@ -55,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final total = await DBHelper.instance.countEmployees();
     final summary = await DBHelper.instance.getTodaySummary(today);
     final activities = await DBHelper.instance.getRecentActivities(limit: 8);
+    final unread = await DBHelper.instance.countUnreadNotifications();
 
     // 7-day trend (single query for the whole range — not one query per day)
     final last7Start = now.subtract(const Duration(days: 6));
@@ -91,6 +96,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!mounted) return;
     setState(() {
       totalEmployees = total;
+      unreadNotifications = unread;
       todaySummary = summary;
       weekTrend = trend;
       monthlyWeeklyPresent = buckets;
@@ -104,7 +110,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final columns = Responsive.statGridColumns(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Dashboard')),
+      appBar: AppBar(
+        title: const Text('Dashboard'),
+        actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined),
+                tooltip: 'Notifications',
+                onPressed: () async {
+                  await Navigator.push(context, fadeSlideRoute(const NotificationsScreen()));
+                  _load();
+                },
+              ),
+              if (unreadNotifications > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      unreadNotifications > 9 ? '9+' : '$unreadNotifications',
+                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
       drawer: const AppDrawer(),
       body: loading
           ? const Center(child: CircularProgressIndicator())
@@ -220,37 +258,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _quickActions(BuildContext context) {
+    final canManageLeave = context.read<Session>().permissions.canManageLeave;
+
+    final actions = <Widget>[
+      _quickActionButton(
+        context,
+        icon: Icons.bolt,
+        label: 'Shift Planning',
+        color: AppColors.accent,
+        onTap: () => Navigator.push(context, fadeSlideRoute(const ReportsScreen())),
+      ),
+      if (canManageLeave)
+        _quickActionButton(
+          context,
+          icon: Icons.event_busy,
+          label: 'Leave Entry',
+          color: AppColors.warning,
+          onTap: () => Navigator.push(context, fadeSlideRoute(const LeaveEntryScreen())),
+        ),
+      _quickActionButton(
+        context,
+        icon: Icons.checklist,
+        label: 'Attendance',
+        color: AppColors.primary,
+        onTap: () => Navigator.push(context, fadeSlideRoute(const AttendanceScreen())),
+      ),
+    ];
+
     return Row(
       children: [
-        Expanded(
-          child: _quickActionButton(
-            context,
-            icon: Icons.bolt,
-            label: 'Shift Planning',
-            color: AppColors.accent,
-            onTap: () => Navigator.push(context, fadeSlideRoute(const ReportsScreen())),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _quickActionButton(
-            context,
-            icon: Icons.event_busy,
-            label: 'Leave Entry',
-            color: AppColors.warning,
-            onTap: () => Navigator.push(context, fadeSlideRoute(const LeaveEntryScreen())),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _quickActionButton(
-            context,
-            icon: Icons.checklist,
-            label: 'Attendance',
-            color: AppColors.primary,
-            onTap: () => Navigator.push(context, fadeSlideRoute(const AttendanceScreen())),
-          ),
-        ),
+        for (int i = 0; i < actions.length; i++) ...[
+          if (i > 0) const SizedBox(width: 10),
+          Expanded(child: actions[i]),
+        ],
       ],
     );
   }
