@@ -9,7 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   cupertino_icons: ^1.0.6
+  supabase_flutter: ^2.8.0
 
   # Local SQLite database (fully offline)
   sqflite: ^2.3.3+1
