@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Internet permission here is ONLY used by Flutter's debug tooling
-     (hot reload) when you run the app from a computer during development.
-     It is NOT included in the release build, so the installed app on a
-     phone truly has no internet/network permission at all. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET"/>
-</manifest>
