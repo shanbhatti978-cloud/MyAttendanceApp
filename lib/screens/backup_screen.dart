@@ -1,0 +1,174 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../db/db_helper.dart';
+import '../utils/constants.dart';
+import '../utils/session.dart';
+import '../widgets/access_guard.dart';
+import '../widgets/app_drawer.dart';
+
+class BackupScreen extends StatefulWidget {
+  const BackupScreen({super.key});
+
+  @override
+  State<BackupScreen> createState() => _BackupScreenState();
+}
+
+class _BackupScreenState extends State<BackupScreen> {
+  bool _working = false;
+  String? _message;
+
+  Future<void> _backup() async {
+    setState(() {
+      _working = true;
+      _message = null;
+    });
+    try {
+      final path = await DBHelper.instance.prepareBackupFile();
+      final stamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(path)], text: 'RAMS Database Backup - $stamp'),
+      );
+      setState(() => _message = 'Backup ready. Choose where to save it (Drive, USB, WhatsApp, etc).');
+    } catch (e) {
+      setState(() => _message = 'Backup failed: $e');
+    } finally {
+      // Reopens the database connection (it was closed to safely copy the file)
+      await DBHelper.instance.database;
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _restore() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Restore Backup'),
+        content: const Text(
+            'This will REPLACE all current data (employees, attendance, settings) with the '
+            'contents of the backup file you choose. This cannot be undone. Continue?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Restore', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      dialogTitle: 'Select RAMS backup (.db) file',
+    );
+    if (result == null || result.files.single.path == null) return;
+
+    setState(() {
+      _working = true;
+      _message = null;
+    });
+    try {
+      await DBHelper.instance.restoreFromFile(result.files.single.path!);
+      setState(() => _message = 'Restore complete. Please restart the app.');
+    } catch (e) {
+      setState(() => _message = 'Restore failed: $e');
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = context.watch<Session>().permissions.isAdmin;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Backup / Restore')),
+      drawer: const AppDrawer(),
+      body: AccessGuard(
+        allowed: isAdmin,
+        message: 'Backup and restore are Admin-only features to protect your data.',
+        child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.10), shape: BoxShape.circle),
+                child: const Icon(Icons.sd_storage_outlined, size: 44, color: AppColors.primary),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline, color: AppColors.primary),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'All your data lives only on this phone. Back it up regularly '
+                        '(e.g. weekly) to Google Drive or another safe place in case the '
+                        'phone is lost, damaged, or replaced.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _working ? null : _backup,
+              icon: const Icon(Icons.backup),
+              label: const Text('BACKUP DATABASE'),
+            ),
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: _working ? null : _restore,
+              icon: const Icon(Icons.restore, color: AppColors.danger),
+              label: const Text('RESTORE FROM BACKUP', style: TextStyle(color: AppColors.danger)),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger, width: 1.4)),
+            ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _working
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 22),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : (_message != null
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 20),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: (_message!.toLowerCase().contains('fail') ? AppColors.danger : AppColors.success)
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _message!.toLowerCase().contains('fail') ? Icons.error_outline : Icons.check_circle_outline,
+                                  color: _message!.toLowerCase().contains('fail') ? AppColors.danger : AppColors.success,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(_message!)),
+                              ],
+                            ),
+                          ),
+                        )
+                      : const SizedBox(height: 0)),
+            ),
+          ],
+        ),
+      ),
+      ),
+    );
+  }
+}

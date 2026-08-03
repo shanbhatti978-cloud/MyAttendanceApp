@@ -1,0 +1,272 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../db/db_helper.dart';
+import '../../models/employee.dart';
+import '../../utils/constants.dart';
+import '../../utils/data_bus.dart';
+import '../../utils/export_helper.dart';
+import '../../utils/session.dart';
+
+class DepartmentReportTab extends StatefulWidget {
+  const DepartmentReportTab({super.key});
+
+  @override
+  State<DepartmentReportTab> createState() => _DepartmentReportTabState();
+}
+
+class _DepartmentReportTabState extends State<DepartmentReportTab> {
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  List<String> _availableDepartments = [];
+  String? _selectedDepartment;
+  List<Map<String, dynamic>> _report = [];
+  bool _loading = true;
+  bool _exporting = false;
+  bool _sortByPercentage = false;
+  bool _sortAscending = true;
+
+  String get _monthLabel => DateFormat('MMMM yyyy').format(_month);
+
+  @override
+  void initState() {
+    super.initState();
+    DataBus.instance.addListener(_onDataChanged);
+    _init();
+  }
+
+  @override
+  void dispose() {
+    DataBus.instance.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _load();
+  }
+
+  Future<void> _init() async {
+    final departments = await DBHelper.instance.getDistinctDepartments();
+    setState(() {
+      _availableDepartments = departments;
+      _selectedDepartment = departments.isNotEmpty ? departments.first : null;
+    });
+    if (_selectedDepartment != null) await _load();
+    setState(() => _loading = false);
+  }
+
+  Future<void> _load() async {
+    if (_selectedDepartment == null) return;
+    setState(() => _loading = true);
+    final report = await DBHelper.instance.getMonthlyReport(
+      _month.year,
+      _month.month,
+      departmentFilter: _selectedDepartment!,
+    );
+    _applySort(report);
+    setState(() {
+      _report = report;
+      _loading = false;
+    });
+  }
+
+  void _applySort(List<Map<String, dynamic>> list) {
+    int compare(Map<String, dynamic> a, Map<String, dynamic> b) {
+      if (_sortByPercentage) {
+        return (a['percentage'] as double).compareTo(b['percentage'] as double);
+      }
+      final Employee ea = a['employee'];
+      final Employee eb = b['employee'];
+      return ea.name.toLowerCase().compareTo(eb.name.toLowerCase());
+    }
+
+    list.sort(_sortAscending ? compare : (a, b) => compare(b, a));
+  }
+
+  void _toggleSort(bool byPercentage) {
+    setState(() {
+      if (_sortByPercentage == byPercentage) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortByPercentage = byPercentage;
+        _sortAscending = true;
+      }
+      _applySort(_report);
+    });
+  }
+
+  Future<void> _changeMonth(int delta) async {
+    setState(() => _month = DateTime(_month.year, _month.month + delta));
+    _load();
+  }
+
+  Future<void> _export(bool asExcel) async {
+    if (_selectedDepartment == null) return;
+    setState(() => _exporting = true);
+    final companyName = await DBHelper.instance.getSetting('company_name', fallback: 'My Company');
+    try {
+      if (asExcel) {
+        await ExportHelper.exportDepartmentReportExcel(
+          report: _report,
+          department: _selectedDepartment!,
+          monthLabel: _monthLabel.replaceAll(' ', '_'),
+          companyName: companyName,
+        );
+      } else {
+        await ExportHelper.exportDepartmentReportPdf(
+          report: _report,
+          department: _selectedDepartment!,
+          monthLabel: _monthLabel.replaceAll(' ', '_'),
+          companyName: companyName,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canExport = context.watch<Session>().permissions.canExportReports;
+
+    if (_availableDepartments.isEmpty && !_loading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('No employees with a Department assigned yet. Add a Department in Employee Master first.',
+              textAlign: TextAlign.center),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Container(
+          color: AppColors.primary.withValues(alpha: 0.08),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => _changeMonth(-1)),
+                  Expanded(
+                    child: Text(_monthLabel,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
+                  ),
+                  IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _changeMonth(1)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.apartment, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  const Text('Department: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                  Expanded(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: _selectedDepartment,
+                      items: _availableDepartments.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      onChanged: (v) {
+                        setState(() => _selectedDepartment = v);
+                        _load();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (canExport)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _exporting || _report.isEmpty ? null : () => _export(true),
+                    icon: const Icon(Icons.grid_on),
+                    label: const Text('Export Excel'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _exporting || _report.isEmpty ? null : () => _export(false),
+                    icon: const Icon(Icons.picture_as_pdf),
+                    label: const Text('Export PDF'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (!_loading && _report.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                const Text('Sort by:', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Name'),
+                  selected: !_sortByPercentage,
+                  onSelected: (_) => _toggleSort(false),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Attendance %'),
+                  selected: _sortByPercentage,
+                  onSelected: (_) => _toggleSort(true),
+                ),
+                const Spacer(),
+                Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 16, color: AppColors.primary),
+              ],
+            ),
+          ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _report.isEmpty
+                  ? const Center(child: Text('No employees in this department.'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      itemCount: _report.length,
+                      itemBuilder: (context, i) {
+                        final row = _report[i];
+                        final Employee emp = row['employee'];
+                        final pct = (row['percentage'] as double);
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          child: ListTile(
+                            title: Text(emp.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text('${emp.employeeCode} • ${emp.designation}\n'
+                                'P:${row['present']}  A:${row['absent']}  L:${row['leave']}  WR:${row['weeklyRest']}'),
+                            isThreeLine: true,
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text('${pct.toStringAsFixed(0)}%',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: pct >= 90
+                                          ? AppColors.success
+                                          : pct >= 75
+                                              ? AppColors.warning
+                                              : AppColors.danger,
+                                    )),
+                                const Text('Attend.', style: TextStyle(fontSize: 10, color: Colors.black45)),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
+  }
+}
