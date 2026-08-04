@@ -37,12 +37,13 @@ class DBHelper {
     return openDatabase(
       path,
       // v2 added performance indexes; v3 added activity_log; v4 added
-      // Department/Unit Number; v5 adds Father Name/CNIC/Mobile Number
-      // to employees, plus leave_requests, notifications, and
-      // manpower_rules tables. All migrations run automatically for
-      // anyone upgrading from an earlier install — existing employees/
-      // attendance/settings are never touched.
-      version: 5,
+      // Department/Unit Number; v5 added Father Name/CNIC/Mobile Number,
+      // leave_requests, notifications, and manpower_rules tables; v6
+      // adds updated_at/is_synced columns used by cloud sync (Phase 8).
+      // All migrations run automatically for anyone upgrading from an
+      // earlier install — existing employees/attendance/settings are
+      // never touched.
+      version: 6,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: _createTables,
       onUpgrade: _onUpgrade,
@@ -139,6 +140,33 @@ class DBHelper {
         )
       ''');
     }
+    if (oldVersion < 6) {
+      // updated_at + is_synced + cloud_id power the cloud sync layer:
+      // updated_at is used for "last write wins" conflict resolution,
+      // is_synced marks which local rows still need to be pushed to
+      // Supabase, and cloud_id remembers the matching cloud row once a
+      // local row has been pushed at least once (so later pushes UPDATE
+      // instead of duplicating, and pulled-down cloud changes can be
+      // matched back to the right local row). Every existing row is
+      // treated as "not yet synced" so the very first sync after
+      // upgrading uploads all of it.
+      for (final table in ['employees', 'attendance', 'leave_requests', 'notifications', 'manpower_rules']) {
+        final cols = await db.rawQuery("PRAGMA table_info($table)");
+        final existingCols = cols.map((c) => c['name'] as String).toSet();
+        if (!existingCols.contains('updated_at')) {
+          await db.execute(
+              "ALTER TABLE $table ADD COLUMN updated_at TEXT NOT NULL DEFAULT '${DateTime(2000).toIso8601String()}'");
+        }
+        if (!existingCols.contains('is_synced')) {
+          await db.execute('ALTER TABLE $table ADD COLUMN is_synced INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!existingCols.contains('cloud_id')) {
+          await db.execute('ALTER TABLE $table ADD COLUMN cloud_id TEXT');
+        }
+      }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_synced ON employees (is_synced)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_attendance_synced ON attendance (is_synced)');
+    }
   }
 
   Future<void> _createTables(Database db, int version) async {
@@ -166,11 +194,15 @@ class DBHelper {
         weekly_rest_day TEXT NOT NULL,
         joining_date TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'Active',
-        remarks TEXT DEFAULT ''
+        remarks TEXT DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        cloud_id TEXT
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_department ON employees (department)');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_unit ON employees (unit_number)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_employees_synced ON employees (is_synced)');
 
     await db.execute('''
       CREATE TABLE leave_requests (
@@ -186,6 +218,9 @@ class DBHelper {
         decided_by TEXT,
         decided_at TEXT,
         remarks TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT '',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        cloud_id TEXT,
         FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE
       )
     ''');
@@ -199,7 +234,10 @@ class DBHelper {
         type TEXT NOT NULL DEFAULT 'info',
         related_id INTEGER,
         is_read INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT '',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        cloud_id TEXT
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications (created_at)');
@@ -209,7 +247,10 @@ class DBHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         designation TEXT UNIQUE NOT NULL,
         min_required INTEGER NOT NULL DEFAULT 0,
-        max_required INTEGER NOT NULL DEFAULT 0
+        max_required INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT '',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        cloud_id TEXT
       )
     ''');
 
@@ -219,6 +260,9 @@ class DBHelper {
         employee_id INTEGER NOT NULL,
         date TEXT NOT NULL,
         status TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT '',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        cloud_id TEXT,
         FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE,
         UNIQUE (employee_id, date) ON CONFLICT REPLACE
       )
@@ -383,7 +427,10 @@ class DBHelper {
 
   Future<int> insertEmployee(Employee e) async {
     final db = await database;
-    final id = await db.insert('employees', e.toMap()..remove('id'));
+    final map = e.toMap()..remove('id');
+    map['updated_at'] = DateTime.now().toIso8601String();
+    map['is_synced'] = 0;
+    final id = await db.insert('employees', map);
     await logActivity('Added employee "${e.name}" (${e.employeeCode})', iconType: 'employee');
     DataBus.instance.notifyChanged();
     return id;
@@ -391,7 +438,10 @@ class DBHelper {
 
   Future<int> updateEmployee(Employee e) async {
     final db = await database;
-    final count = await db.update('employees', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    final map = e.toMap();
+    map['updated_at'] = DateTime.now().toIso8601String();
+    map['is_synced'] = 0;
+    final count = await db.update('employees', map, where: 'id = ?', whereArgs: [e.id]);
     await logActivity('Updated employee "${e.name}" (${e.employeeCode})', iconType: 'employee');
     DataBus.instance.notifyChanged();
     return count;
@@ -516,9 +566,12 @@ class DBHelper {
   /// "duplicate attendance protection" requirement.
   Future<void> upsertAttendance(AttendanceRecord record) async {
     final db = await database;
+    final map = record.toMap()..remove('id');
+    map['updated_at'] = DateTime.now().toIso8601String();
+    map['is_synced'] = 0;
     await db.insert(
       'attendance',
-      record.toMap()..remove('id'),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     final emp = await getEmployeeById(record.employeeId);
@@ -533,9 +586,12 @@ class DBHelper {
   Future<void> saveAllAttendance(List<AttendanceRecord> records) async {
     final db = await database;
     final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
     for (final r in records) {
-      batch.insert('attendance', r.toMap()..remove('id'),
-          conflictAlgorithm: ConflictAlgorithm.replace);
+      final map = r.toMap()..remove('id');
+      map['updated_at'] = now;
+      map['is_synced'] = 0;
+      batch.insert('attendance', map, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
     if (records.isNotEmpty) {
@@ -909,6 +965,8 @@ class DBHelper {
       'status': 'Pending',
       'applied_by': appliedBy,
       'applied_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+      'is_synced': 0,
     });
 
     final emp = await getEmployeeById(employeeId);
@@ -969,6 +1027,8 @@ class DBHelper {
         'decided_by': decidedBy,
         'decided_at': DateTime.now().toIso8601String(),
         'remarks': remarks,
+        'updated_at': DateTime.now().toIso8601String(),
+        'is_synced': 0,
       },
       where: 'id = ?',
       whereArgs: [requestId],
@@ -1002,11 +1062,18 @@ class DBHelper {
     final start = DateTime.parse(fromDate);
     final end = DateTime.parse(toDate);
     final batch = db.batch();
+    final now = DateTime.now().toIso8601String();
     for (DateTime d = start; !d.isAfter(end); d = d.add(const Duration(days: 1))) {
       final dateStr = DateFormat('yyyy-MM-dd').format(d);
       batch.insert(
         'attendance',
-        {'employee_id': employeeId, 'date': dateStr, 'status': AppConstants.leave},
+        {
+          'employee_id': employeeId,
+          'date': dateStr,
+          'status': AppConstants.leave,
+          'updated_at': now,
+          'is_synced': 0,
+        },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -1023,6 +1090,8 @@ class DBHelper {
       'related_id': relatedId,
       'is_read': 0,
       'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+      'is_synced': 0,
     });
   }
 
@@ -1064,7 +1133,13 @@ class DBHelper {
     final db = await database;
     await db.insert(
       'manpower_rules',
-      {'designation': designation, 'min_required': min, 'max_required': max},
+      {
+        'designation': designation,
+        'min_required': min,
+        'max_required': max,
+        'updated_at': DateTime.now().toIso8601String(),
+        'is_synced': 0,
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -1124,5 +1199,211 @@ class DBHelper {
     _db = await _initDB();
     await logActivity('Database restored from backup', iconType: 'backup');
     DataBus.instance.notifyChanged();
+  }
+
+  // ================================================================
+  // CLOUD SYNC SUPPORT (Phase 8)
+  // ================================================================
+  // Everything below is read/written ONLY by SyncService. The rest of
+  // the app never touches these directly — it just keeps using the
+  // normal DBHelper methods above exactly as before, and those methods
+  // already stamp updated_at/is_synced=0 on every write so SyncService
+  // knows what still needs to go up to the cloud.
+
+  Future<String> getLastSyncTime() => getSetting('last_sync_time', fallback: '');
+  Future<void> setLastSyncTime(String iso8601) => setSetting('last_sync_time', iso8601);
+
+  // ---- Unsynced rows (for pushing up) ----
+
+  Future<List<Map<String, dynamic>>> getUnsyncedEmployees() async {
+    final db = await database;
+    return db.query('employees', where: 'is_synced = 0');
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedAttendance() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT a.*, e.employee_code as employee_code FROM attendance a
+      JOIN employees e ON e.id = a.employee_id
+      WHERE a.is_synced = 0
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedLeaveRequests() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT lr.*, e.employee_code as employee_code FROM leave_requests lr
+      JOIN employees e ON e.id = lr.employee_id
+      WHERE lr.is_synced = 0
+    ''');
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedNotifications() async {
+    final db = await database;
+    return db.query('notifications', where: 'is_synced = 0');
+  }
+
+  Future<List<Map<String, dynamic>>> getUnsyncedManpowerRules() async {
+    final db = await database;
+    return db.query('manpower_rules', where: 'is_synced = 0');
+  }
+
+  // ---- Marking rows synced (after a successful push) ----
+
+  Future<void> markSynced(String table, int localId, String cloudId) async {
+    final db = await database;
+    await db.update(table, {'is_synced': 1, 'cloud_id': cloudId}, where: 'id = ?', whereArgs: [localId]);
+  }
+
+  // ---- Applying pulled-down cloud rows locally ("last write wins") ----
+
+  /// Inserts or updates a local employee from a cloud row, matched by
+  /// employee_code (the natural key). Only overwrites the local copy if
+  /// the cloud version is newer, so an offline edit already sitting in
+  /// the local DB is never silently clobbered by a stale cloud pull.
+  Future<void> upsertEmployeeFromCloud(Map<String, dynamic> cloud) async {
+    final db = await database;
+    final existing = await db.query('employees', where: 'employee_code = ?', whereArgs: [cloud['employee_code']]);
+    final cloudUpdatedAt = DateTime.parse(cloud['updated_at'] as String);
+
+    final map = {
+      'employee_code': cloud['employee_code'],
+      'name': cloud['name'],
+      'father_name': cloud['father_name'] ?? '',
+      'cnic': cloud['cnic'] ?? '',
+      'mobile_number': cloud['mobile_number'] ?? '',
+      'designation': cloud['designation'],
+      'department': cloud['department'] ?? '',
+      'unit_number': cloud['unit_number'] ?? '',
+      'shift': cloud['shift'],
+      'weekly_rest_day': cloud['weekly_rest_day'],
+      'joining_date': cloud['joining_date'],
+      'status': cloud['status'],
+      'remarks': cloud['remarks'] ?? '',
+      'updated_at': cloud['updated_at'],
+      'is_synced': 1,
+      'cloud_id': cloud['id'],
+    };
+
+    if (existing.isEmpty) {
+      await db.insert('employees', map);
+      DataBus.instance.notifyChanged();
+    } else {
+      final localUpdatedAtStr = existing.first['updated_at'] as String?;
+      final localUpdatedAt =
+          (localUpdatedAtStr == null || localUpdatedAtStr.isEmpty) ? DateTime(2000) : DateTime.parse(localUpdatedAtStr);
+      if (cloudUpdatedAt.isAfter(localUpdatedAt)) {
+        await db.update('employees', map, where: 'id = ?', whereArgs: [existing.first['id']]);
+        DataBus.instance.notifyChanged();
+      }
+    }
+  }
+
+  Future<void> upsertAttendanceFromCloud(Map<String, dynamic> cloud) async {
+    final db = await database;
+    final empRows = await db.query('employees', where: 'employee_code = ?', whereArgs: [cloud['employee_code']]);
+    if (empRows.isEmpty) return; // employee not synced locally yet — will retry next sync
+    final employeeId = empRows.first['id'] as int;
+
+    final existing = await db.query('attendance', where: 'employee_id = ? AND date = ?', whereArgs: [employeeId, cloud['date']]);
+    final cloudUpdatedAt = DateTime.parse(cloud['updated_at'] as String);
+
+    final map = {
+      'employee_id': employeeId,
+      'date': cloud['date'],
+      'status': cloud['status'],
+      'updated_at': cloud['updated_at'],
+      'is_synced': 1,
+      'cloud_id': cloud['id'],
+    };
+
+    if (existing.isEmpty) {
+      await db.insert('attendance', map);
+      DataBus.instance.notifyChanged();
+    } else {
+      final localUpdatedAtStr = existing.first['updated_at'] as String?;
+      final localUpdatedAt =
+          (localUpdatedAtStr == null || localUpdatedAtStr.isEmpty) ? DateTime(2000) : DateTime.parse(localUpdatedAtStr);
+      if (cloudUpdatedAt.isAfter(localUpdatedAt)) {
+        await db.update('attendance', map, where: 'id = ?', whereArgs: [existing.first['id']]);
+        DataBus.instance.notifyChanged();
+      }
+    }
+  }
+
+  Future<void> upsertLeaveRequestFromCloud(Map<String, dynamic> cloud) async {
+    final db = await database;
+    final empRows = await db.query('employees', where: 'employee_code = ?', whereArgs: [cloud['employee_code']]);
+    if (empRows.isEmpty) return;
+    final employeeId = empRows.first['id'] as int;
+
+    // Matched by cloud_id if we've seen this exact cloud row before;
+    // otherwise fall back to the natural combination that identifies
+    // "the same request" across devices.
+    var existing = await db.query('leave_requests', where: 'cloud_id = ?', whereArgs: [cloud['id']]);
+    if (existing.isEmpty) {
+      existing = await db.query(
+        'leave_requests',
+        where: 'employee_id = ? AND leave_type = ? AND from_date = ? AND to_date = ? AND applied_at = ?',
+        whereArgs: [employeeId, cloud['leave_type'], cloud['from_date'], cloud['to_date'], cloud['applied_at']],
+      );
+    }
+
+    final cloudUpdatedAt = DateTime.parse(cloud['updated_at'] as String);
+    final map = {
+      'employee_id': employeeId,
+      'leave_type': cloud['leave_type'],
+      'from_date': cloud['from_date'],
+      'to_date': cloud['to_date'],
+      'reason': cloud['reason'] ?? '',
+      'status': cloud['status'],
+      'applied_by': cloud['applied_by'] ?? '',
+      'applied_at': cloud['applied_at'],
+      'decided_by': cloud['decided_by'],
+      'decided_at': cloud['decided_at'],
+      'remarks': cloud['remarks'] ?? '',
+      'updated_at': cloud['updated_at'],
+      'is_synced': 1,
+      'cloud_id': cloud['id'],
+    };
+
+    if (existing.isEmpty) {
+      await db.insert('leave_requests', map);
+      DataBus.instance.notifyChanged();
+    } else {
+      final localUpdatedAtStr = existing.first['updated_at'] as String?;
+      final localUpdatedAt =
+          (localUpdatedAtStr == null || localUpdatedAtStr.isEmpty) ? DateTime(2000) : DateTime.parse(localUpdatedAtStr);
+      if (cloudUpdatedAt.isAfter(localUpdatedAt)) {
+        await db.update('leave_requests', map, where: 'id = ?', whereArgs: [existing.first['id']]);
+        DataBus.instance.notifyChanged();
+      }
+    }
+  }
+
+  Future<void> upsertManpowerRuleFromCloud(Map<String, dynamic> cloud) async {
+    final db = await database;
+    final existing = await db.query('manpower_rules', where: 'designation = ?', whereArgs: [cloud['designation']]);
+    final cloudUpdatedAt = DateTime.parse(cloud['updated_at'] as String);
+
+    final map = {
+      'designation': cloud['designation'],
+      'min_required': cloud['min_required'],
+      'max_required': cloud['max_required'],
+      'updated_at': cloud['updated_at'],
+      'is_synced': 1,
+      'cloud_id': cloud['id'],
+    };
+
+    if (existing.isEmpty) {
+      await db.insert('manpower_rules', map);
+    } else {
+      final localUpdatedAtStr = existing.first['updated_at'] as String?;
+      final localUpdatedAt =
+          (localUpdatedAtStr == null || localUpdatedAtStr.isEmpty) ? DateTime(2000) : DateTime.parse(localUpdatedAtStr);
+      if (cloudUpdatedAt.isAfter(localUpdatedAt)) {
+        await db.update('manpower_rules', map, where: 'id = ?', whereArgs: [existing.first['id']]);
+      }
+    }
   }
 }

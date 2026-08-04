@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No internet permission is requested — RAMS is fully offline by design.
+    <!-- The app remains fully usable offline by design. INTERNET/
+         ACCESS_NETWORK_STATE are only used for the OPTIONAL background
+         cloud sync layer (Phase 8) — if there's no connection, sync
+         simply fails silently and every other feature keeps working
+         exactly as it always has.
          READ/WRITE storage permissions are only for Backup/Restore + Export,
          handled via Android's scoped storage / share sheet (no broad
          "manage all files" access needed on modern Android). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
     <application

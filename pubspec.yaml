@@ -1,7 +1,7 @@
 name: rams_app
 description: Reliance Attendance Management System (RAMS) - Offline Android app
 publish_to: 'none'
-version: 1.4.0+6
+version: 1.5.0+7
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -43,6 +43,12 @@ dependencies:
 
   # Charts for Dashboard / Shift Planning visualizations
   fl_chart: ^0.69.0
+
+  # Cloud sync (Phase 8) - optional online backup/sync on top of the
+  # local SQLite database, which always remains the source of truth
+  # for offline use.
+  supabase_flutter: ^2.8.0
+  connectivity_plus: ^6.1.0
 
 dev_dependencies:
   flutter_test:

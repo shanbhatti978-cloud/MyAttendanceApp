@@ -5,6 +5,7 @@ import '../db/db_helper.dart';
 import '../utils/constants.dart';
 import '../utils/page_transitions.dart';
 import '../utils/session.dart';
+import '../utils/sync_service.dart';
 import '../utils/theme_controller.dart';
 import '../widgets/app_drawer.dart';
 import 'security_settings_screen.dart';
@@ -137,6 +138,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 12),
+                if (isAdmin) ...[
+                  AnimatedBuilder(
+                    animation: SyncService.instance,
+                    builder: (context, _) {
+                      final sync = SyncService.instance;
+                      final statusText = switch (sync.status) {
+                        SyncStatus.syncing => 'Syncing...',
+                        SyncStatus.success => sync.lastSyncedAt != null
+                            ? 'Last synced: ${sync.lastSyncedAt!.hour.toString().padLeft(2, '0')}:${sync.lastSyncedAt!.minute.toString().padLeft(2, '0')}'
+                            : 'Synced',
+                        SyncStatus.offline => 'No connection — will retry automatically',
+                        SyncStatus.error => 'Sync error — will retry automatically',
+                        SyncStatus.idle => sync.lastSyncedAt != null ? 'Waiting to sync' : 'Not synced yet',
+                      };
+                      final statusColor = switch (sync.status) {
+                        SyncStatus.success => AppColors.success,
+                        SyncStatus.offline || SyncStatus.error => AppColors.warning,
+                        _ => Colors.black54,
+                      };
+                      return Card(
+                        child: ListTile(
+                          leading: Icon(
+                            sync.status == SyncStatus.syncing ? Icons.sync : Icons.cloud_outlined,
+                            color: AppColors.primary,
+                            size: 32,
+                          ),
+                          title: const Text('Cloud Sync', style: TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(statusText, style: TextStyle(color: statusColor)),
+                          trailing: sync.status == SyncStatus.syncing
+                              ? const SizedBox(
+                                  height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                              : TextButton(
+                                  onPressed: () => sync.syncNow(),
+                                  child: const Text('Sync Now'),
+                                ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (isAdmin) ...[
                   const SizedBox(height: 24),
                   const Divider(),

@@ -135,6 +135,24 @@ STEP 5 - Install it on your phone
     Supervisor login:  supervisor / super123
     (Change these immediately from Settings > Change Password.)
 
+    IMPORTANT - ONE-TIME CLOUD SETUP (before your first build):
+    This version adds optional cloud sync via Supabase. Before building,
+    open your Supabase project's SQL Editor and run the whole contents
+    of supabase_schema.sql (included in this folder) ONCE. This creates
+    the cloud tables the app will sync to/from. The app's Supabase URL
+    and key are already wired into lib/utils/supabase_config.dart.
+
+    The app works exactly the same with zero setup — it just won't sync
+    until you've run that SQL script. If you ever change to a different
+    Supabase project, update the url/anonKey values in that same file.
+
+    New: a "Cloud Sync" card in Settings (Admin only) shows sync status
+    and has a "Sync Now" button. Sync also runs automatically in the
+    background whenever the phone regains an internet connection — the
+    app never has to be online to keep working, this only adds a way
+    to back up data centrally and (in a future update) share it with a
+    web dashboard.
+
     Also new in this version: Employee Master now includes Father Name,
     CNIC, and Mobile Number. A complete Leave Apply -> Approve/Reject
     workflow has been added (drawer > "Leave Requests" to review, or

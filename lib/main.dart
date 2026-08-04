@@ -3,12 +3,18 @@ import 'package:provider/provider.dart';
 
 import 'utils/constants.dart';
 import 'utils/session.dart';
+import 'utils/supabase_config.dart';
 import 'utils/theme_controller.dart';
 import 'widgets/app_lifecycle_lock.dart';
+import 'widgets/connectivity_sync_listener.dart';
 import 'screens/auth_gate_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Best-effort: if there's no internet right now, this simply fails
+  // silently and the app continues running fully offline as always —
+  // cloud sync activates automatically later once connectivity returns.
+  await SupabaseConfig.initialize();
   runApp(const RAMSApp());
 }
 
@@ -30,13 +36,17 @@ class RAMSApp extends StatelessWidget {
             theme: AppTheme.theme,
             darkTheme: AppTheme.darkTheme,
             themeMode: themeController.mode,
-            // The app is 100% offline: no HTTP client, no server, no localhost.
-            // Everything runs and is stored directly on the device via SQLite.
+            // The app remains local-first: every screen reads/writes
+            // SQLite directly and works fully offline. Cloud sync (when
+            // internet is available) is a background layer on top —
+            // see ConnectivitySyncListener and lib/utils/sync_service.dart.
             home: const AuthGateScreen(),
             // AppLifecycleLock wraps every screen so that resuming from the
             // background — not just a cold start — re-triggers biometric
             // unlock when it's turned on, matching banking-app behavior.
-            builder: (context, child) => AppLifecycleLock(child: child!),
+            builder: (context, child) => ConnectivitySyncListener(
+              child: AppLifecycleLock(child: child!),
+            ),
           );
         },
       ),
