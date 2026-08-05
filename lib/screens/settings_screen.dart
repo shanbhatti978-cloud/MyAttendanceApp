@@ -159,21 +159,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _ => Colors.black54,
                       };
                       return Card(
-                        child: ListTile(
-                          leading: Icon(
-                            sync.status == SyncStatus.syncing ? Icons.sync : Icons.cloud_outlined,
-                            color: AppColors.primary,
-                            size: 32,
-                          ),
-                          title: const Text('Cloud Sync', style: TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text(statusText, style: TextStyle(color: statusColor)),
-                          trailing: sync.status == SyncStatus.syncing
-                              ? const SizedBox(
-                                  height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                              : TextButton(
-                                  onPressed: () => sync.syncNow(),
-                                  child: const Text('Sync Now'),
+                        child: Column(
+                          children: [
+                            ListTile(
+                              leading: Icon(
+                                sync.status == SyncStatus.syncing ? Icons.sync : Icons.cloud_outlined,
+                                color: AppColors.primary,
+                                size: 32,
+                              ),
+                              title: const Text('Cloud Sync', style: TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: Text(statusText, style: TextStyle(color: statusColor)),
+                              trailing: sync.status == SyncStatus.syncing
+                                  ? const SizedBox(
+                                      height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : TextButton(
+                                      onPressed: () => sync.syncNow(),
+                                      child: const Text('Sync Now'),
+                                    ),
+                            ),
+                            if (sync.status == SyncStatus.offline && sync.lastError != null)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                                child: Text(
+                                  sync.lastError!,
+                                  style: const TextStyle(fontSize: 11, color: Colors.black45),
                                 ),
+                              ),
+                          ],
                         ),
                       );
                     },

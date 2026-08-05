@@ -28,6 +28,17 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Retry initialization here too — not just once at app startup —
+      // so a phone that had no internet on first launch still starts
+      // syncing normally the moment it does get connectivity, instead
+      // of being stuck reporting "No connection" forever.
+      if (!SupabaseConfig.isReady) {
+        await SupabaseConfig.initialize();
+      }
+      if (!SupabaseConfig.isReady) {
+        throw Exception(SupabaseConfig.lastInitError ?? 'Could not connect to the cloud database.');
+      }
+
       final client = SupabaseConfig.client;
       // A lightweight reachability check — if this throws, we're
       // offline (or the project is unreachable) and should bail out
